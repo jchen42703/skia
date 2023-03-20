@@ -12,7 +12,9 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
+
+using namespace skia_private;
 
 namespace skiagm {
 
@@ -90,7 +92,7 @@ protected:
     const SkScalar kHeight = 256;
 
 private:
-    SkTArray<SkPath> fPaths;
+    TArray<SkPath> fPaths;
     using INHERITED = GM;
 };
 

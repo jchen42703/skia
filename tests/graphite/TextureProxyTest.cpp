@@ -36,6 +36,12 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
     auto nullCallback = [](ResourceProvider*) -> sk_sp<Texture> { return nullptr; };
     auto callback = [texture](ResourceProvider*) -> sk_sp<Texture> { return texture; };
 
+    // Assign to assignableTexture before instantiating with this callback.
+    sk_sp<Texture> assignableTexture;
+    auto assignableCallback = [&assignableTexture](ResourceProvider*) -> sk_sp<Texture> {
+        return assignableTexture;
+    };
+
     // Invalid parameters.
     sk_sp<TextureProxy> textureProxy;
     textureProxy = TextureProxy::Make(caps,
@@ -44,7 +50,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
                                       Mipmapped::kNo,
                                       Protected::kNo,
                                       Renderable::kNo,
-                                      SkBudgeted::kNo);
+                                      skgpu::Budgeted::kNo);
     REPORTER_ASSERT(reporter, textureProxy == nullptr);
     textureProxy = TextureProxy::Make(caps,
                                       kValidSize,
@@ -52,7 +58,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
                                       Mipmapped::kNo,
                                       Protected::kNo,
                                       Renderable::kNo,
-                                      SkBudgeted::kNo);
+                                      skgpu::Budgeted::kNo);
     REPORTER_ASSERT(reporter, textureProxy == nullptr);
 
     // Non-lazy TextureProxy, successful instantiation.
@@ -62,8 +68,9 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
                                       Mipmapped::kNo,
                                       Protected::kNo,
                                       Renderable::kNo,
-                                      SkBudgeted::kNo);
+                                      skgpu::Budgeted::kNo);
     REPORTER_ASSERT(reporter, !textureProxy->isLazy());
+    REPORTER_ASSERT(reporter, !textureProxy->isFullyLazy());
     REPORTER_ASSERT(reporter, !textureProxy->isVolatile());
     REPORTER_ASSERT(reporter, !textureProxy->isInstantiated());
     REPORTER_ASSERT(reporter, textureProxy->dimensions() == kValidSize);
@@ -80,8 +87,9 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
 
     // Lazy, non-volatile TextureProxy, unsuccessful instantiation.
     textureProxy = TextureProxy::MakeLazy(
-            kValidSize, textureInfo, SkBudgeted::kNo, Volatile::kNo, nullCallback);
+            kValidSize, textureInfo, skgpu::Budgeted::kNo, Volatile::kNo, nullCallback);
     REPORTER_ASSERT(reporter, textureProxy->isLazy());
+    REPORTER_ASSERT(reporter, !textureProxy->isFullyLazy());
     REPORTER_ASSERT(reporter, !textureProxy->isVolatile());
 
     instantiateSuccess = textureProxy->lazyInstantiate(resourceProvider);
@@ -90,7 +98,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
 
     // Lazy, non-volatile TextureProxy, successful instantiation.
     textureProxy = TextureProxy::MakeLazy(
-            kValidSize, textureInfo, SkBudgeted::kNo, Volatile::kNo, callback);
+            kValidSize, textureInfo, skgpu::Budgeted::kNo, Volatile::kNo, callback);
 
     instantiateSuccess = textureProxy->lazyInstantiate(resourceProvider);
     REPORTER_ASSERT(reporter, instantiateSuccess);
@@ -98,8 +106,9 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
 
     // Lazy, volatile TextureProxy, unsuccessful instantiation.
     textureProxy = TextureProxy::MakeLazy(
-            kValidSize, textureInfo, SkBudgeted::kNo, Volatile::kYes, nullCallback);
+            kValidSize, textureInfo, skgpu::Budgeted::kNo, Volatile::kYes, nullCallback);
     REPORTER_ASSERT(reporter, textureProxy->isLazy());
+    REPORTER_ASSERT(reporter, !textureProxy->isFullyLazy());
     REPORTER_ASSERT(reporter, textureProxy->isVolatile());
 
     instantiateSuccess = textureProxy->lazyInstantiate(resourceProvider);
@@ -108,7 +117,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
 
     // Lazy, volatile TextureProxy, successful instantiation.
     textureProxy = TextureProxy::MakeLazy(
-            kValidSize, textureInfo, SkBudgeted::kNo, Volatile::kYes, callback);
+            kValidSize, textureInfo, skgpu::Budgeted::kNo, Volatile::kYes, callback);
 
     instantiateSuccess = textureProxy->lazyInstantiate(resourceProvider);
     REPORTER_ASSERT(reporter, instantiateSuccess);
@@ -117,6 +126,32 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
     textureProxy->deinstantiate();
     REPORTER_ASSERT(reporter, !textureProxy->isInstantiated());
 
+    // Fully-lazy TextureProxy.
+    textureProxy = TextureProxy::MakeFullyLazy(
+            textureInfo, skgpu::Budgeted::kNo, Volatile::kYes, assignableCallback);
+    REPORTER_ASSERT(reporter, textureProxy->isLazy());
+    REPORTER_ASSERT(reporter, textureProxy->isFullyLazy());
+    REPORTER_ASSERT(reporter, textureProxy->isVolatile());
+
+    assignableTexture = texture;
+    instantiateSuccess = textureProxy->lazyInstantiate(resourceProvider);
+    REPORTER_ASSERT(reporter, instantiateSuccess);
+    REPORTER_ASSERT(reporter, textureProxy->isInstantiated());
+    REPORTER_ASSERT(reporter, textureProxy->isFullyLazy());
+    REPORTER_ASSERT(reporter, textureProxy->dimensions() == kValidSize);
+
+    textureProxy->deinstantiate();
+    REPORTER_ASSERT(reporter, !textureProxy->isInstantiated());
+    REPORTER_ASSERT(reporter, textureProxy->isFullyLazy());
+
+    constexpr SkISize kLargerSize = SkISize::Make(2, 2);
+    const BackendTexture largerBackendTexture =
+            recorder->createBackendTexture(kLargerSize, textureInfo);
+    assignableTexture = resourceProvider->createWrappedTexture(largerBackendTexture);
+    instantiateSuccess = textureProxy->lazyInstantiate(resourceProvider);
+    REPORTER_ASSERT(reporter, instantiateSuccess);
+    REPORTER_ASSERT(reporter, textureProxy->dimensions() == kLargerSize);
+
     // InstantiateIfNotLazy tests.
     textureProxy = TextureProxy::Make(caps,
                                       kValidSize,
@@ -124,12 +159,12 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteTextureProxyTest, reporter, context) 
                                       Mipmapped::kNo,
                                       Protected::kNo,
                                       Renderable::kNo,
-                                      SkBudgeted::kNo);
+                                      skgpu::Budgeted::kNo);
     instantiateSuccess = TextureProxy::InstantiateIfNotLazy(resourceProvider, textureProxy.get());
     REPORTER_ASSERT(reporter, instantiateSuccess);
 
     textureProxy = TextureProxy::MakeLazy(
-            kValidSize, textureInfo, SkBudgeted::kNo, Volatile::kNo, nullCallback);
+            kValidSize, textureInfo, skgpu::Budgeted::kNo, Volatile::kNo, nullCallback);
     instantiateSuccess = TextureProxy::InstantiateIfNotLazy(resourceProvider, textureProxy.get());
     REPORTER_ASSERT(reporter, instantiateSuccess);
 }

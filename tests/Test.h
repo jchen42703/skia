@@ -9,13 +9,13 @@
 
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkNoncopyable.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkNoncopyable.h"
+#include "include/private/base/SkTArray.h"
 #include "src/core/SkTraceEvent.h"
 #include "tests/CtsEnforcement.h"
 #include "tools/Registry.h"
 
-#if SK_GPU_V1
+#if defined(SK_GANESH)
 #include "tools/gpu/GrContextFactory.h" // IWYU pragma: export (because it is used by a macro)
 #else
 namespace sk_gpu_test { class ContextInfo; }
@@ -23,6 +23,7 @@ namespace sk_gpu_test { class ContextInfo; }
 
 #include <atomic>
 #include <cstdint>
+#include <string>
 
 struct GrContextOptions;
 
@@ -53,9 +54,19 @@ public:
 
     void reportFailedWithContext(const skiatest::Failure&);
 
+    /**
+     * Show additional context (e.g. subtest name) on failure assertions.
+     */
     void push(const SkString& message) {
         fContextStack.push_back(message);
     }
+    void push(const std::string message) {
+        fContextStack.push_back(SkString(message));
+    }
+
+    /**
+     * Remove additional context from failure assertions.
+     */
     void pop() {
         fContextStack.pop_back();
     }
@@ -67,9 +78,16 @@ private:
 #define REPORT_FAILURE(reporter, cond, message) \
     reporter->reportFailedWithContext(skiatest::Failure(__FILE__, __LINE__, cond, message))
 
+/**
+ * Use this stack-allocated object to push and then automatically pop the context
+ * (e.g. subtest name) for a test.
+ */
 class ReporterContext : SkNoncopyable {
 public:
     ReporterContext(Reporter* reporter, const SkString& message) : fReporter(reporter) {
+        fReporter->push(message);
+    }
+    ReporterContext(Reporter* reporter, const std::string message) : fReporter(reporter) {
         fReporter->push(message);
     }
     ~ReporterContext() {
@@ -156,7 +174,7 @@ private:
 
 using TestRegistry = sk_tools::Registry<Test>;
 
-#if SK_GPU_V1
+#if defined(SK_GANESH)
 using GrContextFactoryContextType = sk_gpu_test::GrContextFactory::ContextType;
 #else
 using GrContextFactoryContextType = nullptr_t;

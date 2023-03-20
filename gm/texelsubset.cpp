@@ -16,7 +16,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
@@ -30,6 +30,8 @@
 
 #include <memory>
 #include <utility>
+
+using namespace skia_private;
 
 using MipmapMode = GrSamplerState::MipmapMode;
 using Filter     = GrSamplerState::Filter;
@@ -115,7 +117,7 @@ protected:
                                             3*fBitmap.width()/5 + 2, 4*fBitmap.height()/5 + 2);
         }
 
-        SkTArray<SkMatrix> textureMatrices;
+        TArray<SkMatrix> textureMatrices;
 
         SkRect a = SkRect::Make(texelSubset);
         SkRect b = fUpscale ? a.makeInset (.31f * a.width(), .31f * a.height())

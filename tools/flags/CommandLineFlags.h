@@ -9,8 +9,8 @@
 #define SK_COMMAND_LINE_FLAGS_H
 
 #include "include/core/SkString.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTDArray.h"
 
 /**
  *  Including this file (and compiling CommandLineFlags.cpp) provides command line
@@ -126,7 +126,7 @@ public:
     class StringArray {
     public:
         StringArray() {}
-        explicit StringArray(const SkTArray<SkString>& strings) : fStrings(strings) {}
+        explicit StringArray(const skia_private::TArray<SkString>& strings) : fStrings(strings) {}
         const char* operator[](int i) const {
             SkASSERT(i >= 0 && i < fStrings.size());
             return fStrings[i].c_str();
@@ -160,13 +160,13 @@ public:
         const SkString* end() const { return fStrings.end(); }
 
     private:
-        void reset() { fStrings.reset(); }
+        void reset() { fStrings.clear(); }
 
         void append(const char* string) { fStrings.push_back().set(string); }
 
         void append(const char* string, size_t length) { fStrings.push_back().set(string, length); }
 
-        SkTArray<SkString> fStrings;
+        skia_private::TArray<SkString> fStrings;
 
         friend class SkFlagInfo;
     };

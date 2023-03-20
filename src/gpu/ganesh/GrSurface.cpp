@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkTextureCompressionType.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "src/core/SkCompressedDataUtils.h"
 #include "src/gpu/ganesh/GrBackendUtils.h"
@@ -14,7 +15,7 @@
 #include "src/gpu/ganesh/GrSurface.h"
 #include "src/gpu/ganesh/GrTexture.h"
 
-#include "src/core/SkMathPriv.h"
+#include "src/base/SkMathPriv.h"
 #include "src/gpu/ganesh/SkGr.h"
 
 size_t GrSurface::ComputeSize(const GrBackendFormat& format,
@@ -34,8 +35,8 @@ size_t GrSurface::ComputeSize(const GrBackendFormat& format,
         dimensions = GrResourceProvider::MakeApprox(dimensions);
     }
 
-    SkImage::CompressionType compressionType = GrBackendFormatToCompressionType(format);
-    if (compressionType != SkImage::CompressionType::kNone) {
+    SkTextureCompressionType compressionType = GrBackendFormatToCompressionType(format);
+    if (compressionType != SkTextureCompressionType::kNone) {
         colorSize = SkCompressedFormatDataSize(compressionType, dimensions,
                                                mipmapped == GrMipmapped::kYes);
     } else {

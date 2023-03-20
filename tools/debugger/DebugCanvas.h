@@ -17,7 +17,7 @@
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 
 #include <cstddef>
 #include <map>
@@ -251,7 +251,7 @@ private:
      */
     void addDrawCommand(DrawCommand* command);
 
-#if SK_GPU_V1
+#if defined(SK_GANESH)
     GrAuditTrail* getAuditTrail(SkCanvas*);
     void drawAndCollectOps(SkCanvas*);
     void cleanupAuditTrail(GrAuditTrail*);

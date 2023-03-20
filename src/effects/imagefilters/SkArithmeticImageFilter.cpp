@@ -27,7 +27,7 @@
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkRuntimeEffect.h"
 #include "include/private/SkColorData.h"
-#include "include/private/SkVx.h"
+#include "src/base/SkVx.h"
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkRuntimeEffectPriv.h"
@@ -40,9 +40,11 @@
 #include <memory>
 #include <utility>
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrRecordingContext.h"
 #include "include/gpu/GrTypes.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrColorSpaceXform.h"
 #include "src/gpu/ganesh/GrFragmentProcessor.h"
 #include "src/gpu/ganesh/GrImageInfo.h"
@@ -71,7 +73,7 @@ protected:
     SkIRect onFilterBounds(const SkIRect&, const SkMatrix& ctm,
                            MapDirection, const SkIRect* inputRect) const override;
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     sk_sp<SkSpecialImage> filterImageGPU(const Context& ctx,
                                          sk_sp<SkSpecialImage> background,
                                          const SkIPoint& backgroundOffset,
@@ -242,7 +244,7 @@ sk_sp<SkSpecialImage> SkArithmeticImageFilter::onFilterImage(const Context& ctx,
     offset->fX = bounds.left();
     offset->fY = bounds.top();
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     if (ctx.gpuBacked()) {
         return this->filterImageGPU(ctx, background, backgroundOffset, foreground,
                                     foregroundOffset, bounds);
@@ -326,7 +328,7 @@ SkIRect SkArithmeticImageFilter::onFilterBounds(const SkIRect& src,
     return SkIRect::MakeEmpty();
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 
 std::unique_ptr<GrFragmentProcessor> make_arithmetic_fp(
         std::unique_ptr<GrFragmentProcessor> srcFP,

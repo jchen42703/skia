@@ -121,3 +121,70 @@ DEF_TEST(SkRasterPipelineOpts_Tan, r) {
         }
     }
 }
+
+DEF_TEST(SkRasterPipelineOpts_Asin, r) {
+    using F = SK_OPTS_NS::F;
+
+    constexpr float kTolerance = 0.00175f;
+    for (float x = -1; x <= 1; x += 1.0f/64) {
+        F result = SK_OPTS_NS::asin_(x);
+        F expected = asinf(x);
+        F delta = SK_OPTS_NS::abs_(expected - result);
+
+        REPORTER_ASSERT(r, SK_OPTS_NS::all(delta < kTolerance));
+    }
+}
+
+DEF_TEST(SkRasterPipelineOpts_Acos, r) {
+    using F = SK_OPTS_NS::F;
+
+    constexpr float kTolerance = 0.00175f;
+    for (float x = -1; x <= 1; x += 1.0f/64) {
+        F result = SK_OPTS_NS::acos_(x);
+        F expected = acosf(x);
+        F delta = SK_OPTS_NS::abs_(expected - result);
+
+        REPORTER_ASSERT(r, SK_OPTS_NS::all(delta < kTolerance));
+    }
+}
+
+DEF_TEST(SkRasterPipelineOpts_Atan, r) {
+    using F = SK_OPTS_NS::F;
+
+    constexpr float kTolerance = 0.00175f;
+    for (float x = -10.0f; x <= 10.0f; x += 0.1f) {
+        F result = SK_OPTS_NS::atan_(x);
+        F expected = atanf(x);
+        F delta = SK_OPTS_NS::abs_(expected - result);
+
+        REPORTER_ASSERT(r, SK_OPTS_NS::all(delta < kTolerance));
+    }
+}
+
+DEF_TEST(SkRasterPipelineOpts_Atan2, r) {
+    using F = SK_OPTS_NS::F;
+
+    constexpr float kTolerance = 0.00175f;
+    for (float y = -3.0f; y <= 3.0f; y += 0.1f) {
+        for (float x = -3.0f; x <= 3.0f; x += 0.1f) {
+            F result = SK_OPTS_NS::atan2_(y, x);
+            F expected = sk_float_atan2(y, x);
+            F delta = SK_OPTS_NS::abs_(expected - result);
+
+            REPORTER_ASSERT(r, SK_OPTS_NS::all(delta < kTolerance));
+        }
+    }
+}
+
+DEF_TEST(SkRasterPipelineOpts_Log2, r) {
+    using F = SK_OPTS_NS::F;
+
+    constexpr float kTolerance = 0.001f;
+    for (float value : {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f}) {
+        F result = SK_OPTS_NS::approx_log2(value);
+        F expected = std::log2(value);
+        F delta = SK_OPTS_NS::abs_(expected - result);
+
+        REPORTER_ASSERT(r, SK_OPTS_NS::all(delta < kTolerance));
+    }
+}

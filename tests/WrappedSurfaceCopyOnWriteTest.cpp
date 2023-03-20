@@ -19,12 +19,14 @@
 #include "include/core/SkSurface.h"
 #include "include/core/SkSurfaceCharacterization.h"
 #include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/SkColorData.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkCanvasPriv.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrDrawingManager.h"
 #include "src/gpu/ganesh/GrImageInfo.h"
@@ -161,7 +163,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkipCopyTaskTest,
     CheckSolidPixels(SkColor4f{1, 0, 0, 1}, pixels, kTol, errorReporter);
 }
 
-#if SK_GPU_V1
+#if defined(SK_GANESH)
 
 // Make sure OpsTask are skippable
 DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkipOpsTaskTest, reporter, ctxInfo, CtsEnforcement::kNever) {
@@ -195,4 +197,4 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkipOpsTaskTest, reporter, ctxInfo, CtsEn
             });
     CheckSolidPixels(SkColor4f{1, 0, 0, 1}, pixels, kTol, errorReporter);
 }
-#endif // SK_GPU_V1
+#endif // defined(SK_GANESH)

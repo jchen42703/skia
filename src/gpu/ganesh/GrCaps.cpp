@@ -10,8 +10,11 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkSize.h"
+#include "include/core/SkTextureCompressionType.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrContextOptions.h"
+#include "include/private/base/SkDebug.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkCompressedDataUtils.h"
 #include "src/gpu/ganesh/GrBackendUtils.h"
@@ -164,6 +167,10 @@ void GrCaps::applyOptionsOverrides(const GrContextOptions& options) {
     fAvoidStencilBuffers = options.fAvoidStencilBuffers;
 
     fDriverBugWorkarounds.applyOverrides(options.fDriverBugWorkarounds);
+
+    if (options.fDisableTessellationPathRenderer) {
+        fDisableTessellationPathRenderer = true;
+    }
 }
 
 
@@ -314,14 +321,14 @@ bool GrCaps::canCopySurface(const GrSurfaceProxy* dst, const SkIRect& dstRect,
 
 bool GrCaps::validateSurfaceParams(const SkISize& dimensions, const GrBackendFormat& format,
                                    GrRenderable renderable, int renderTargetSampleCnt,
-                                   GrMipmapped mipped, GrTextureType textureType) const {
+                                   skgpu::Mipmapped mipped, GrTextureType textureType) const {
     if (textureType != GrTextureType::kNone) {
         if (!this->isFormatTexturable(format, textureType)) {
             return false;
         }
     }
 
-    if (GrMipmapped::kYes == mipped && !this->mipmapSupport()) {
+    if (skgpu::Mipmapped::kYes == mipped && !this->mipmapSupport()) {
         return false;
     }
 
@@ -419,9 +426,9 @@ bool GrCaps::areColorTypeAndFormatCompatible(GrColorType grCT,
         return false;
     }
 
-    SkImage::CompressionType compression = GrBackendFormatToCompressionType(format);
-    if (compression != SkImage::CompressionType::kNone) {
-        return grCT == (SkCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
+    SkTextureCompressionType compression = GrBackendFormatToCompressionType(format);
+    if (compression != SkTextureCompressionType::kNone) {
+        return grCT == (SkTextureCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
                                                                : GrColorType::kRGBA_8888);
     }
 
@@ -429,8 +436,8 @@ bool GrCaps::areColorTypeAndFormatCompatible(GrColorType grCT,
 }
 
 skgpu::Swizzle GrCaps::getReadSwizzle(const GrBackendFormat& format, GrColorType colorType) const {
-    SkImage::CompressionType compression = GrBackendFormatToCompressionType(format);
-    if (compression != SkImage::CompressionType::kNone) {
+    SkTextureCompressionType compression = GrBackendFormatToCompressionType(format);
+    if (compression != SkTextureCompressionType::kNone) {
         if (colorType == GrColorType::kRGB_888x || colorType == GrColorType::kRGBA_8888) {
             return skgpu::Swizzle::RGBA();
         }
@@ -443,7 +450,7 @@ skgpu::Swizzle GrCaps::getReadSwizzle(const GrBackendFormat& format, GrColorType
 }
 
 bool GrCaps::isFormatCompressed(const GrBackendFormat& format) const {
-    return GrBackendFormatToCompressionType(format) != SkImage::CompressionType::kNone;
+    return GrBackendFormatToCompressionType(format) != SkTextureCompressionType::kNone;
 }
 
 GrDstSampleFlags GrCaps::getDstSampleFlagsForProxy(const GrRenderTargetProxy* rt,

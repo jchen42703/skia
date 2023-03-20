@@ -14,8 +14,8 @@
 #include "include/gpu/GrBackendSemaphore.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrRecordingContext.h"
+#include "src/base/SkTInternalLList.h"
 #include "src/core/SkDeferredDisplayListPriv.h"
-#include "src/core/SkTInternalLList.h"
 #include "src/gpu/ganesh/GrBufferTransferRenderTask.h"
 #include "src/gpu/ganesh/GrBufferUpdateRenderTask.h"
 #include "src/gpu/ganesh/GrClientMappedBufferManager.h"
@@ -204,7 +204,7 @@ bool GrDrawingManager::flush(
         cachePurgeNeeded = false;
     }
     for (GrOnFlushCallbackObject* onFlushCBObject : fOnFlushCBObjects) {
-        onFlushCBObject->postFlush(fTokenTracker.nextTokenToFlush());
+        onFlushCBObject->postFlush(fTokenTracker.nextFlushToken());
         cachePurgeNeeded = true;
     }
     if (cachePurgeNeeded) {
@@ -280,7 +280,7 @@ bool GrDrawingManager::executeRenderTasks(GrOpFlushState* flushState) {
     }
 
     SkASSERT(!flushState->opsRenderPass());
-    SkASSERT(fTokenTracker.nextDrawToken() == fTokenTracker.nextTokenToFlush());
+    SkASSERT(fTokenTracker.nextDrawToken() == fTokenTracker.nextFlushToken());
 
     // We reset the flush state before the RenderTasks so that the last resources to be freed are
     // those that are written to in the RenderTasks. This helps to make sure the most recently used
@@ -301,7 +301,7 @@ void GrDrawingManager::removeRenderTasks() {
         }
         task->disown(this);
     }
-    fDAG.reset();
+    fDAG.clear();
     fReorderBlockerTaskIndices.clear();
     fLastRenderTasks.reset();
 }
@@ -317,7 +317,7 @@ void GrDrawingManager::sortTasks() {
         }));
         SkASSERT(span.end() == fDAG.end() || fDAG[end]->blocksReordering());
 
-#if SK_GPU_V1 && defined(SK_DEBUG)
+#if defined(SK_GANESH) && defined(SK_DEBUG)
         // In order to partition the dag array like this it must be the case that each partition
         // only depends on nodes in the partition or earlier partitions.
         auto check = [&](const GrRenderTask* task, auto&& check) -> void {

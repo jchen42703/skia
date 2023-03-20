@@ -9,10 +9,12 @@
 #define GrVkCaps_DEFINED
 
 #include "include/gpu/vk/GrVkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "src/gpu/ganesh/GrCaps.h"
 
 class GrVkRenderTarget;
+enum class SkTextureCompressionType;
 
 namespace skgpu {
 class VulkanExtensions;
@@ -35,7 +37,7 @@ public:
              uint32_t instanceVersion,
              uint32_t physicalDeviceVersion,
              const skgpu::VulkanExtensions& extensions,
-             GrProtected isProtected = GrProtected::kNo);
+             skgpu::Protected isProtected = skgpu::Protected::kNo);
 
     bool isFormatSRGB(const GrBackendFormat&) const override;
 
@@ -233,7 +235,7 @@ public:
                           int srcSamplecnt,
                           bool srcHasYcbcr) const;
 
-    GrBackendFormat getBackendFormatFromCompressionType(SkImage::CompressionType) const override;
+    GrBackendFormat getBackendFormatFromCompressionType(SkTextureCompressionType) const override;
 
     VkFormat getFormatFromColorType(GrColorType colorType) const {
         int idx = static_cast<int>(colorType);
@@ -285,6 +287,9 @@ private:
     };
 
     enum class IntelGPUType {
+        // 9th gen
+        kSkyLake,
+
         // 11th gen
         kIceLake,
 
@@ -299,6 +304,8 @@ private:
     static IntelGPUType GetIntelGPUType(uint32_t deviceID);
     static int GetIntelGen(IntelGPUType type) {
         switch (type) {
+            case IntelGPUType::kSkyLake:
+                return 9;
             case IntelGPUType::kIceLake:
                 return 11;
             case IntelGPUType::kRocketLake: // fall through

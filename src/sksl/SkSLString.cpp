@@ -5,17 +5,21 @@
  * found in the LICENSE file.
  */
 
+#include "include/private/SkSLDefines.h"
 #include "include/private/SkSLString.h"
-#include "include/private/SkStringView.h"
+#include "include/private/base/SkAssert.h"
+#include "src/base/SkStringView.h"
 
 #include <cerrno>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <locale>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 template <typename RoundtripType, int kFullPrecision>
 static std::string to_string_impl(RoundtripType value) {
@@ -27,7 +31,7 @@ static std::string to_string_impl(RoundtripType value) {
 
     double roundtripped;
     buffer >> roundtripped;
-    if (value != (RoundtripType)roundtripped) {
+    if (value != (RoundtripType)roundtripped && std::isfinite(value)) {
         buffer.str({});
         buffer.clear();
         buffer.precision(kFullPrecision);

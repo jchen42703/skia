@@ -6,6 +6,7 @@
  */
 
 #include "include/core/SkAlphaType.h"
+#include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkColorType.h"
 #include "include/core/SkPixmap.h"
@@ -19,6 +20,7 @@
 #include "include/gpu/graphite/TextureInfo.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkConvertPixels.h"
+#include "src/core/SkImageInfoPriv.h"
 #include "src/gpu/graphite/Caps.h"
 #include "src/gpu/graphite/ContextPriv.h"
 #include "src/gpu/graphite/RecorderPriv.h"
@@ -26,6 +28,8 @@
 #include "tests/Test.h"
 #include "tests/TestUtils.h"
 #include "tools/ToolUtils.h"
+
+using Mipmapped = skgpu::Mipmapped;
 
 static constexpr int min_rgb_channel_bits(SkColorType ct) {
     switch (ct) {
@@ -46,6 +50,7 @@ static constexpr int min_rgb_channel_bits(SkColorType ct) {
         case kRGB_101010x_SkColorType:        return 10;
         case kBGRA_1010102_SkColorType:       return 10;
         case kBGR_101010x_SkColorType:        return 10;
+        case kBGR_101010x_XR_SkColorType:     return 10;
         case kGray_8_SkColorType:             return 8;   // counting gray as "rgb"
         case kRGBA_F16Norm_SkColorType:       return 10;  // just counting the mantissa
         case kRGBA_F16_SkColorType:           return 10;  // just counting the mantissa
@@ -75,6 +80,7 @@ static constexpr int alpha_channel_bits(SkColorType ct) {
         case kRGB_101010x_SkColorType:        return 0;
         case kBGRA_1010102_SkColorType:       return 2;
         case kBGR_101010x_SkColorType:        return 0;
+        case kBGR_101010x_XR_SkColorType:     return 0;
         case kGray_8_SkColorType:             return 0;
         case kRGBA_F16Norm_SkColorType:       return 10;  // just counting the mantissa
         case kRGBA_F16_SkColorType:           return 10;  // just counting the mantissa
@@ -444,6 +450,7 @@ static void graphite_read_pixels_test_driver(skiatest::Reporter* reporter,
                 // ComparePixels will end up converting these types to kUnknown
                 // because there's no corresponding GrColorType, and hence it will fail
                 if (readCT == kRGB_101010x_SkColorType ||
+                    readCT == kBGR_101010x_XR_SkColorType ||
                     readCT == kBGR_101010x_SkColorType) {
                     continue;
                 }
@@ -507,7 +514,7 @@ DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(ImageAsyncReadPixelsGraphite,
                                          context) {
     using Image = sk_sp<SkImage>;
     using Recorder = skgpu::graphite::Recorder;
-    using Renderable = skgpu::graphite::Renderable;
+    using Renderable = skgpu::Renderable;
     using TextureInfo = skgpu::graphite::TextureInfo;
 
     auto reader = std::function<GraphiteReadSrcFn<Image>>([context](const Image& image,
@@ -519,7 +526,7 @@ DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(ImageAsyncReadPixelsGraphite,
         // types.
         TextureInfo texInfo = context->priv().caps()->getDefaultSampledTextureInfo(
                 image->colorType(),
-                skgpu::graphite::Mipmapped::kNo,
+                Mipmapped::kNo,
                 skgpu::Protected::kNo,
                 Renderable::kYes);
         if (!context->priv().caps()->isRenderable(texInfo)) {
@@ -554,7 +561,7 @@ DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(ImageAsyncReadPixelsGraphite,
             // TODO: put this in the equivalent of sk_gpu_test::MakeBackendTextureImage
             TextureInfo info = recorder->priv().caps()->getDefaultSampledTextureInfo(
                     src.colorType(),
-                    skgpu::graphite::Mipmapped::kNo,
+                    Mipmapped::kNo,
                     skgpu::Protected::kNo,
                     renderable);
             auto texture = recorder->createBackendTexture(src.dimensions(), info);
@@ -621,7 +628,7 @@ DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(SurfaceAsyncReadPixelsGraphite,
     auto factory = std::function<GraphiteSrcFactory<Surface>>([&](const SkPixmap& src) {
         Surface surface = SkSurface::MakeGraphite(recorder.get(),
                                                   src.info(),
-                                                  skgpu::graphite::Mipmapped::kNo,
+                                                  Mipmapped::kNo,
                                                   /*surfaceProps=*/nullptr);
         if (surface) {
             surface->writePixels(src, 0, 0);

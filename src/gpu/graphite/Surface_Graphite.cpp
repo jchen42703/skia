@@ -113,7 +113,7 @@ sk_sp<const SkCapabilities> Surface::onCapabilities() {
     return fDevice->recorder()->priv().caps()->capabilities();
 }
 
-#if GRAPHITE_TEST_UTILS && SK_SUPPORT_GPU
+#if GRAPHITE_TEST_UTILS && defined(SK_GANESH)
 GrSemaphoresSubmitted Surface::onFlush(BackendSurfaceAccess,
                                        const GrFlushInfo&,
                                        const skgpu::MutableTextureState*) {
@@ -122,12 +122,13 @@ GrSemaphoresSubmitted Surface::onFlush(BackendSurfaceAccess,
 }
 #endif
 
+TextureProxy* Surface::backingTextureProxy() { return fDevice->target(); }
+
 sk_sp<SkSurface> Surface::MakeGraphite(Recorder* recorder,
                                        const SkImageInfo& info,
-                                       SkBudgeted budgeted,
+                                       skgpu::Budgeted budgeted,
                                        Mipmapped mipmapped,
                                        const SkSurfaceProps* props) {
-
     sk_sp<Device> device = Device::Make(recorder, info, budgeted, mipmapped,
                                         SkSurfacePropsCopyOrDefault(props),
                                         /* addInitialClear= */ true);
@@ -135,6 +136,9 @@ sk_sp<SkSurface> Surface::MakeGraphite(Recorder* recorder,
         return nullptr;
     }
 
+    if (!device->target()->instantiate(recorder->priv().resourceProvider())) {
+        return nullptr;
+    }
     return sk_make_sp<Surface>(std::move(device));
 }
 
@@ -168,14 +172,11 @@ bool validate_backend_texture(const Caps* caps,
 
 sk_sp<SkSurface> SkSurface::MakeGraphite(Recorder* recorder,
                                          const SkImageInfo& info,
-                                         Mipmapped mipmapped,
+                                         skgpu::Mipmapped mipmapped,
                                          const SkSurfaceProps* props) {
     // The client is getting the ref on this surface so it must be unbudgeted.
-    return skgpu::graphite::Surface::MakeGraphite(recorder,
-                                                  info,
-                                                  SkBudgeted::kNo,
-                                                  mipmapped,
-                                                  props);
+    return skgpu::graphite::Surface::MakeGraphite(
+            recorder, info, skgpu::Budgeted::kNo, mipmapped, props);
 }
 
 sk_sp<SkSurface> SkSurface::MakeGraphiteFromBackendTexture(Recorder* recorder,

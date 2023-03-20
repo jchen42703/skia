@@ -6,15 +6,17 @@
  */
 
 #include "include/core/SkExecutor.h"
-#include "include/private/SkMutex.h"
-#include "include/private/SkSemaphore.h"
 #include "include/private/SkSpinlock.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkMutex.h"
+#include "include/private/base/SkSemaphore.h"
+#include "include/private/base/SkTArray.h"
 #include <deque>
 #include <thread>
 
+using namespace skia_private;
+
 #if defined(SK_BUILD_FOR_WIN)
-    #include "src/core/SkLeanWindows.h"
+    #include "src/base/SkLeanWindows.h"
     static int num_cores() {
         SYSTEM_INFO sysinfo;
         GetNativeSystemInfo(&sysinfo);
@@ -60,7 +62,7 @@ static inline std::function<void(void)> pop(std::deque<std::function<void(void)>
     list->pop_front();
     return fn;
 }
-static inline std::function<void(void)> pop(SkTArray<std::function<void(void)>>* list) {
+static inline std::function<void(void)> pop(TArray<std::function<void(void)>>* list) {
     std::function<void(void)> fn = std::move(list->back());
     list->pop_back();
     return fn;
@@ -132,7 +134,7 @@ private:
     // Both SkMutex and SkSpinlock can work here.
     using Lock = SkMutex;
 
-    SkTArray<std::thread> fThreads;
+    TArray<std::thread> fThreads;
     WorkList              fWork;
     Lock                  fWorkLock;
     SkSemaphore           fWorkAvailable;
@@ -145,7 +147,7 @@ std::unique_ptr<SkExecutor> SkExecutor::MakeFIFOThreadPool(int threads, bool all
                                                     allowBorrowing);
 }
 std::unique_ptr<SkExecutor> SkExecutor::MakeLIFOThreadPool(int threads, bool allowBorrowing) {
-    using WorkList = SkTArray<std::function<void(void)>>;
+    using WorkList = TArray<std::function<void(void)>>;
     return std::make_unique<SkThreadPool<WorkList>>(threads > 0 ? threads : num_cores(),
                                                     allowBorrowing);
 }

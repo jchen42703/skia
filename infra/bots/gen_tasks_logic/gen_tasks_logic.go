@@ -58,7 +58,7 @@ const (
 	ISOLATE_SDK_LINUX_NAME     = "Housekeeper-PerCommit-IsolateAndroidSDKLinux"
 	ISOLATE_WIN_TOOLCHAIN_NAME = "Housekeeper-PerCommit-IsolateWinToolchain"
 
-	DEBIAN_11_OS                   = "Debian-11.2"
+	DEBIAN_11_OS                   = "Debian-11.5"
 	DEFAULT_OS_DEBIAN              = "Debian-10.10"
 	DEFAULT_OS_LINUX_GCE           = "Debian-10.3"
 	OLD_OS_LINUX_GCE               = "Debian-9.8"
@@ -414,6 +414,7 @@ func GenTasks(cfg *Config) {
 		Paths: []string{
 			// source code
 			"skia/example",
+			"skia/experimental/bazel_test",
 			"skia/include",
 			"skia/modules",
 			"skia/src",
@@ -707,8 +708,8 @@ func (b *jobBuilder) deriveCompileTaskName() string {
 			ignore := []string{
 				"Skpbench", "AbandonGpuContext", "PreAbandonGpuContext", "Valgrind", "FailFlushTimeCallbacks",
 				"ReleaseAndAbandonGpuContext", "FSAA", "FAAA", "FDAA", "NativeFonts", "GDI",
-				"NoGPUThreads", "DDL1", "DDL3", "OOPRDDL", "T8888",
-				"DDLTotal", "DDLRecord", "9x9", "BonusConfigs", "SkottieTracing", "SkottieWASM",
+				"NoGPUThreads", "DDL1", "DDL3", "T8888",
+				"DDLTotal", "DDLRecord", "9x9", "BonusConfigs", "ColorSpaces", "GL", "SkottieTracing", "SkottieWASM",
 				"GpuTess", "DMSAAStats", "Mskp", "Docker", "PDF", "SkVM", "Puppeteer",
 				"SkottieFrames", "RenderSKP", "CanvasPerf", "AllPathsVolatile", "WebGL2", "i5",
 				"OldestSupportedSkpVersion"}
@@ -754,6 +755,8 @@ func (b *jobBuilder) deriveCompileTaskName() string {
 		}
 		if b.extraConfig("PathKit") {
 			ec = []string{"PathKit"}
+			// We prefer to compile this in the cloud because we have more resources there
+			jobNameMap["os"] = "Debian10"
 		}
 		if b.extraConfig("CanvasKit", "SkottieWASM", "Puppeteer") {
 			if b.cpu() {
@@ -761,7 +764,8 @@ func (b *jobBuilder) deriveCompileTaskName() string {
 			} else {
 				ec = []string{"CanvasKit"}
 			}
-
+			// We prefer to compile this in the cloud because we have more resources there
+			jobNameMap["os"] = "Debian10"
 		}
 		if len(ec) > 0 {
 			jobNameMap["extra_config"] = strings.Join(ec, "_")
@@ -816,7 +820,7 @@ func (b *taskBuilder) defaultSwarmDimensions() {
 			"Mac13":      "Mac-13",
 			"Ubuntu18":   "Ubuntu-18.04",
 			"Win":        DEFAULT_OS_WIN,
-			"Win10":      "Windows-10-19044",
+			"Win10":      "Windows-10-19045",
 			"Win2019":    DEFAULT_OS_WIN,
 			"Win8":       "Windows-8.1-SP0",
 			"iOS":        "iOS-13.3.1",
@@ -916,6 +920,7 @@ func (b *taskBuilder) defaultSwarmDimensions() {
 					"MacBookPro11.5": "x86-64-i7-4870HQ",
 					"MacMini7.1":     "x86-64-i5-4278U",
 					"NUC5i7RYH":      "x86-64-i7-5557U",
+					"NUC9i7QN":       "x86-64-i7-9750H",
 				},
 				"AVX512": {
 					"GCE":  "x86-64-Skylake_GCE",
@@ -948,17 +953,17 @@ func (b *taskBuilder) defaultSwarmDimensions() {
 				gpu, ok := map[string]string{
 					// At some point this might use the device ID, but for now it's like Chromebooks.
 					"GTX660":        "10de:11c0-26.21.14.4120",
-					"GTX960":        "10de:1401-30.0.15.1215",
+					"GTX960":        "10de:1401-31.0.15.1694",
 					"IntelHD4400":   "8086:0a16-20.19.15.4963",
-					"IntelIris540":  "8086:1926-26.20.100.7463",
+					"IntelIris540":  "8086:1926-31.0.101.2115",
 					"IntelIris6100": "8086:162b-20.19.15.4963",
 					"IntelIris655":  "8086:3ea5-26.20.100.7463",
 					"IntelIrisXe":   "8086:9a49-31.0.101.3222",
 					"RadeonHD7770":  "1002:683d-26.20.13031.18002",
 					"RadeonR9M470X": "1002:6646-26.20.13031.18002",
 					"QuadroP400":    "10de:1cb3-30.0.15.1179",
-					"RadeonVega6":   "1002:1636-30.0.15021.1001",
-					"RTX3060":       "10de:2489-30.0.15.1215",
+					"RadeonVega6":   "1002:1636-31.0.12027.7000",
+					"RTX3060":       "10de:2489-31.0.15.1694",
 				}[b.parts["cpu_or_gpu_value"]]
 				if !ok {
 					log.Fatalf("Entry %q not found in Win GPU mapping.", b.parts["cpu_or_gpu_value"])
@@ -972,7 +977,7 @@ func (b *taskBuilder) defaultSwarmDimensions() {
 					"IntelHD405":    "8086:22b1",
 					"IntelIris640":  "8086:5926",
 					"QuadroP400":    "10de:1cb3-510.60.02",
-					"RTX3060":       "10de:2489-460.91.03",
+					"RTX3060":       "10de:2489-470.141.03",
 					"IntelIrisXe":   "8086:9a49",
 					"RadeonVega6":   "1002:1636",
 				}[b.parts["cpu_or_gpu_value"]]
@@ -991,11 +996,6 @@ func (b *taskBuilder) defaultSwarmDimensions() {
 					// The Intel Iris Xe devices are Debian 11.3.
 					d["os"] = "Debian-bookworm/sid"
 				}
-				if b.parts["cpu_or_gpu_value"] == "RadeonVega6" {
-					// The RadeonVega6 devices are Debian 11.5.
-					d["os"] = "Debian-11.5"
-				}
-
 			} else if b.matchOs("Mac") {
 				gpu, ok := map[string]string{
 					"AppleM1":       "AppleM1",
@@ -1049,6 +1049,9 @@ func (b *taskBuilder) defaultSwarmDimensions() {
 
 			// Dodge Raspberry Pis.
 			d["cpu"] = "x86-64"
+			// Target the RTX3060 Intel machines, as they are beefy and we have
+			// 20 of them, and they are setup to compile.
+			d["gpu"] = "10de:2489"
 		} else {
 			d["gpu"] = "none"
 		}
@@ -1960,7 +1963,7 @@ func (b *jobBuilder) perf() {
 		b.kitchenTask(recipe, OUTPUT_PERF)
 		b.cas(cas)
 		b.swarmDimensions()
-		if b.extraConfig("CanvasKit", "Docker", "PathKit") {
+		if b.extraConfig("Docker") {
 			b.usesDocker()
 		}
 		if compileTaskName != "" {
@@ -2132,6 +2135,7 @@ func (b *jobBuilder) runWasmGMTests() {
 // label or "target pattern" https://bazel.build/docs/build#specifying-build-targets
 // The reason we need this mapping is because Buildbucket build names cannot have / or : in them.
 var shorthandToLabel = map[string]string{
+	"base":                       "//src:base",
 	"example_hello_world_dawn":   "//example:hello_world_dawn",
 	"example_hello_world_gl":     "//example:hello_world_gl",
 	"example_hello_world_vulkan": "//example:hello_world_vulkan",
@@ -2179,8 +2183,6 @@ func (b *jobBuilder) bazelBuild() {
 			cmd = append(cmd, "--bazel_arg=--config=for_linux_x64_with_rbe")
 			cmd = append(cmd, "--bazel_arg=--jobs=100")
 			cmd = append(cmd, "--bazel_arg=--remote_download_minimal")
-			// https://bazel.build/docs/user-manual#build-runfile-manifests
-			cmd = append(cmd, "--bazel_arg=--nobuild_runfile_manifests", "--bazel_arg=--nobuild_runfile_links")
 		} else {
 			panic("unsupported Bazel host " + host)
 		}
@@ -2232,6 +2234,8 @@ func (b *jobBuilder) bazelTest() {
 				panic("Gold keys not specified for config " + config)
 			}
 		case "cpu_tests":
+			break
+		case "toolchain_layering_check":
 			break
 		default:
 			panic("Unsupported Bazel taskdriver " + taskdriverName)

@@ -33,20 +33,20 @@
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkLumaColorFilter.h"
 #include "include/effects/SkPerlinNoiseShader.h"
-#include "include/private/SkTo.h"
+#include "include/private/base/SkTo.h"
 #include "include/svg/SkSVGCanvas.h"
 #include "include/utils/SkNullCanvas.h"
+#include "src/base/SkUTF.h"
 #include "src/core/SkOSFile.h"
 #include "src/core/SkPaintPriv.h"
 #include "src/core/SkPicturePriv.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/utils/SkJSONWriter.h"
-#include "src/utils/SkUTF.h"
 #include "tools/UrlDataManager.h"
 #include "tools/debugger/DebugCanvas.h"
 #include "tools/flags/CommandLineFlags.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/gpu/GrDirectContext.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "tools/gpu/GrContextFactory.h"
@@ -60,6 +60,8 @@
 
 #include <iostream>
 #include <utility>
+
+using namespace skia_private;
 
 static DEFINE_bool2(gpuInfo, g, false, "Display GPU information on relevant targets.");
 
@@ -796,7 +798,7 @@ static sk_sp<SkImage> make_fuzz_image(Fuzz* fuzz) {
     int w, h;
     fuzz->nextRange(&w, 1, 1024);
     fuzz->nextRange(&h, 1, 1024);
-    SkAutoTMalloc<SkPMColor> data(w * h);
+    AutoTMalloc<SkPMColor> data(w * h);
     SkPixmap pixmap(SkImageInfo::MakeN32Premul(w, h), data.get(), w * sizeof(SkPMColor));
     int n = w * h;
     for (int i = 0; i < n; ++i) {
@@ -1606,12 +1608,12 @@ DEF_FUZZ(SerializedImageFilter, fuzz) {
     canvas.restore();
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 static void fuzz_ganesh(Fuzz* fuzz, GrDirectContext* context) {
     SkASSERT(context);
     auto surface = SkSurface::MakeRenderTarget(
             context,
-            SkBudgeted::kNo,
+            skgpu::Budgeted::kNo,
             SkImageInfo::Make(kCanvasSize, kRGBA_8888_SkColorType, kPremul_SkAlphaType));
     SkASSERT(surface && surface->getCanvas());
     fuzz_canvas(fuzz, surface->getCanvas());

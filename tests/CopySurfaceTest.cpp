@@ -11,10 +11,11 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrTypes.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkTemplates.h"
 #include "src/core/SkOpts.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrImageInfo.h"
@@ -32,6 +33,8 @@
 #include <memory>
 #include <utility>
 
+using namespace skia_private;
+
 struct GrContextOptions;
 
 DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(CopySurface,
@@ -44,12 +47,12 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(CopySurface,
     static const int kH = 10;
     static const size_t kRowBytes = sizeof(uint32_t) * kW;
 
-    SkAutoTMalloc<uint32_t> srcPixels(kW * kH);
+    AutoTMalloc<uint32_t> srcPixels(kW * kH);
     for (int i = 0; i < kW * kH; ++i) {
         srcPixels.get()[i] = i;
     }
 
-    SkAutoTMalloc<uint32_t> dstPixels(kW * kH);
+    AutoTMalloc<uint32_t> dstPixels(kW * kH);
     for (int i = 0; i < kW * kH; ++i) {
         dstPixels.get()[i] = ~i;
     }
@@ -76,7 +79,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(CopySurface,
         SkImageInfo::Make(kW, kH, kBGRA_8888_SkColorType, kPremul_SkAlphaType)
     };
 
-    SkAutoTMalloc<uint32_t> read(kW * kH);
+    AutoTMalloc<uint32_t> read(kW * kH);
 
     for (auto sOrigin : {kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin}) {
         for (auto dOrigin : {kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin}) {
@@ -167,7 +170,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(CopySurface,
                                     continue;
                                 }
 
-                                sk_memset32(read.get(), 0, kW * kH);
+                                SkOpts::memset32(read.get(), 0, kW * kH);
                                 GrPixmap readPM(ii, read.get(), kRowBytes);
                                 if (!dstContext->readPixels(dContext, readPM, {0, 0})) {
                                     ERRORF(reporter, "Error calling readPixels");

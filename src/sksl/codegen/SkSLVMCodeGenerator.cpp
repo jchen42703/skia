@@ -13,19 +13,19 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkSpan.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkFloatingPoint.h"
 #include "include/private/SkSLDefines.h"
 #include "include/private/SkSLIRNode.h"
 #include "include/private/SkSLLayout.h"
 #include "include/private/SkSLModifiers.h"
 #include "include/private/SkSLProgramElement.h"
 #include "include/private/SkSLStatement.h"
-#include "include/private/SkStringView.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTHash.h"
-#include "include/private/SkTPin.h"
+#include "include/private/base/SkFloatingPoint.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTPin.h"
 #include "include/sksl/SkSLOperator.h"
 #include "include/sksl/SkSLPosition.h"
+#include "src/base/SkStringView.h"
+#include "src/core/SkTHash.h"
 #include "src/sksl/SkSLBuiltinTypes.h"
 #include "src/sksl/SkSLCompiler.h"
 #include "src/sksl/SkSLIntrinsicList.h"
@@ -40,8 +40,6 @@
 #include "src/sksl/ir/SkSLConstructorSplat.h"
 #include "src/sksl/ir/SkSLExpression.h"
 #include "src/sksl/ir/SkSLExpressionStatement.h"
-#include "src/sksl/ir/SkSLExternalFunction.h"
-#include "src/sksl/ir/SkSLExternalFunctionCall.h"
 #include "src/sksl/ir/SkSLFieldAccess.h"
 #include "src/sksl/ir/SkSLForStatement.h"
 #include "src/sksl/ir/SkSLFunctionCall.h"
@@ -62,6 +60,7 @@
 #include "src/sksl/ir/SkSLVarDeclarations.h"
 #include "src/sksl/ir/SkSLVariable.h"
 #include "src/sksl/ir/SkSLVariableReference.h"
+#include "src/sksl/tracing/SkSLDebugInfo.h"
 #include "src/sksl/tracing/SkVMDebugTrace.h"
 
 #include <algorithm>
@@ -204,12 +203,12 @@ private:
     Value getSlotValue(size_t slot, size_t nslots);
 
     /**
-     * Returns the slot index of this function inside the SkVMFunctionInfo array in SkVMDebugTrace.
-     * The SkVMFunctionInfo slot will be created if it doesn't already exist.
+     * Returns the slot index of this function inside the FunctionDebugInfo array in SkVMDebugTrace.
+     * The FunctionDebugInfo slot will be created if it doesn't already exist.
      */
     int getDebugFunctionInfo(const FunctionDeclaration& decl);
 
-    /** Used by `createSlot` to add this variable to the SkVMSlotInfo array inside SkVMDebugTrace.*/
+    /** Used by `createSlot` to add this variable to SlotDebugInfo inside SkVMDebugTrace. */
     void addDebugSlotInfo(const std::string& varName, const Type& type, int line,
                           int fnReturnValue);
 
@@ -289,7 +288,6 @@ private:
         return result;
     }
 
-    size_t fieldSlotOffset(const FieldAccess& expr);
     size_t indexSlotOffset(const IndexExpression& expr);
 
     Value writeExpression(const Expression& expr);
@@ -301,7 +299,6 @@ private:
     Value writeConstructorCast(const AnyConstructor& c);
     Value writeConstructorSplat(const ConstructorSplat& c);
     Value writeFunctionCall(const FunctionCall& c);
-    Value writeExternalFunctionCall(const ExternalFunctionCall& c);
     Value writeFieldAccess(const FieldAccess& expr);
     Value writeLiteral(const Literal& l);
     Value writeIndexExpression(const IndexExpression& expr);
@@ -560,7 +557,7 @@ int SkVMGenerator::getDebugFunctionInfo(const FunctionDeclaration& decl) {
         name = name.substr(kNoInline.size());
     }
 
-    // Look for a matching SkVMFunctionInfo slot.
+    // Look for a matching FunctionDebugInfo slot.
     for (size_t index = 0; index < fDebugTrace->fFuncInfo.size(); ++index) {
         if (fDebugTrace->fFuncInfo[index].name == name) {
             return index;
@@ -569,7 +566,7 @@ int SkVMGenerator::getDebugFunctionInfo(const FunctionDeclaration& decl) {
 
     // We've never called this function before; create a new slot to hold its information.
     int slot = (int)fDebugTrace->fFuncInfo.size();
-    fDebugTrace->fFuncInfo.push_back(SkVMFunctionInfo{std::move(name)});
+    fDebugTrace->fFuncInfo.push_back(FunctionDebugInfo{std::move(name)});
     return slot;
 }
 
@@ -669,7 +666,7 @@ void SkVMGenerator::addDebugSlotInfoForGroup(const std::string& varName, const T
             int nslots = type.slotCount();
 
             for (int slot = 0; slot < nslots; ++slot) {
-                SkVMSlotInfo slotInfo;
+                SlotDebugInfo slotInfo;
                 slotInfo.name = varName;
                 slotInfo.columns = type.columns();
                 slotInfo.rows = type.rows();
@@ -1154,18 +1151,10 @@ Value SkVMGenerator::writeConstructorMatrixResize(const ConstructorMatrixResize&
     return dst;
 }
 
-size_t SkVMGenerator::fieldSlotOffset(const FieldAccess& expr) {
-    size_t offset = 0;
-    for (int i = 0; i < expr.fieldIndex(); ++i) {
-        offset += (*expr.base()->type().fields()[i].fType).slotCount();
-    }
-    return offset;
-}
-
 Value SkVMGenerator::writeFieldAccess(const FieldAccess& expr) {
     Value base = this->writeExpression(*expr.base());
     Value field(expr.type().slotCount());
-    size_t offset = this->fieldSlotOffset(expr);
+    size_t offset = expr.initialSlot();
     for (size_t i = 0; i < field.slots(); ++i) {
         field[i] = base[offset + i];
     }
@@ -1634,31 +1623,6 @@ Value SkVMGenerator::writeFunctionCall(const FunctionCall& call) {
     return this->getSlotValue(returnSlot, call.type().slotCount());
 }
 
-Value SkVMGenerator::writeExternalFunctionCall(const ExternalFunctionCall& c) {
-    // Evaluate all arguments, gather the results into a contiguous list of F32
-    std::vector<skvm::F32> args;
-    for (const auto& arg : c.arguments()) {
-        Value v = this->writeExpression(*arg);
-        for (size_t i = 0; i < v.slots(); ++i) {
-            args.push_back(f32(v[i]));
-        }
-    }
-
-    // Create storage for the return value
-    size_t nslots = c.type().slotCount();
-    std::vector<skvm::F32> result(nslots, fBuilder->splat(0.0f));
-
-    c.function().call(fBuilder, args.data(), result.data(), this->mask());
-
-    // Convert from 'vector of F32' to Value
-    Value resultVal(nslots);
-    for (size_t i = 0; i < nslots; ++i) {
-        resultVal[i] = result[i];
-    }
-
-    return resultVal;
-}
-
 Value SkVMGenerator::writeLiteral(const Literal& l) {
     if (l.type().isFloat()) {
         return fBuilder->splat(l.as<Literal>().floatValue());
@@ -1803,8 +1767,6 @@ Value SkVMGenerator::writeExpression(const Expression& e) {
             return this->writeLiteral(e.as<Literal>());
         case Expression::Kind::kFunctionCall:
             return this->writeFunctionCall(e.as<FunctionCall>());
-        case Expression::Kind::kExternalFunctionCall:
-            return this->writeExternalFunctionCall(e.as<ExternalFunctionCall>());
         case Expression::Kind::kPrefix:
             return this->writePrefixExpression(e.as<PrefixExpression>());
         case Expression::Kind::kPostfix:
@@ -1813,7 +1775,6 @@ Value SkVMGenerator::writeExpression(const Expression& e) {
             return this->writeSwizzle(e.as<Swizzle>());
         case Expression::Kind::kTernary:
             return this->writeTernaryExpression(e.as<TernaryExpression>());
-        case Expression::Kind::kExternalFunctionReference:
         default:
             SkDEBUGFAIL("Unsupported expression");
             return {};
@@ -1846,7 +1807,7 @@ Value SkVMGenerator::writeStore(const Expression& lhs, const Value& rhs) {
         switch (expr->kind()) {
             case Expression::Kind::kFieldAccess: {
                 const FieldAccess& fld = expr->as<FieldAccess>();
-                size_t offset = this->fieldSlotOffset(fld);
+                size_t offset = fld.initialSlot();
                 for (size_t& s : slots) {
                     s += offset;
                 }
@@ -2305,6 +2266,9 @@ bool testingOnly_ProgramToSkVMShader(const Program& program,
 
     // Assume identity CTM
     skvm::Coord device = {pun_to_F32(builder->index()), new_uni()};
+    // Position device coords at pixel centers, so debug traces will trigger
+    device.x += 0.5f;
+    device.y += 0.5f;
     skvm::Coord local  = device;
 
     class Callbacks : public SkVMCallbacks {

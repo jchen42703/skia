@@ -14,11 +14,8 @@
 
 namespace skgpu::graphite {
 
-TextureProxy::TextureProxy(SkISize dimensions, const TextureInfo& info, SkBudgeted budgeted)
-        : fDimensions(dimensions)
-        , fInfo(info)
-        , fBudgeted(budgeted)
-        , fVolatile(Volatile::kNo) {
+TextureProxy::TextureProxy(SkISize dimensions, const TextureInfo& info, skgpu::Budgeted budgeted)
+        : fDimensions(dimensions), fInfo(info), fBudgeted(budgeted), fVolatile(Volatile::kNo) {
     SkASSERT(fInfo.isValid());
 }
 
@@ -33,7 +30,7 @@ TextureProxy::TextureProxy(sk_sp<Texture> texture)
 
 TextureProxy::TextureProxy(SkISize dimensions,
                            const TextureInfo& textureInfo,
-                           SkBudgeted budgeted,
+                           skgpu::Budgeted budgeted,
                            Volatile isVolatile,
                            LazyInstantiateCallback&& callback)
         : fDimensions(dimensions)
@@ -47,8 +44,20 @@ TextureProxy::TextureProxy(SkISize dimensions,
 
 TextureProxy::~TextureProxy() {}
 
+SkISize TextureProxy::dimensions() const {
+    SkASSERT(!this->isFullyLazy() || this->isInstantiated());
+    return this->isInstantiated() ? fTexture->dimensions() : fDimensions;
+}
+
 bool TextureProxy::isLazy() const {
     return SkToBool(fLazyInstantiateCallback);
+}
+
+bool TextureProxy::isFullyLazy() const {
+    bool result = fDimensions.width() < 0;
+    SkASSERT(result == (fDimensions.height() < 0));
+    SkASSERT(!result || this->isLazy());
+    return result;
 }
 
 bool TextureProxy::isVolatile() const {
@@ -117,7 +126,7 @@ sk_sp<TextureProxy> TextureProxy::Make(const Caps* caps,
                                        Mipmapped mipmapped,
                                        Protected isProtected,
                                        Renderable renderable,
-                                       SkBudgeted budgeted) {
+                                       skgpu::Budgeted budgeted) {
     if (dimensions.width() < 1 || dimensions.height() < 1) {
         return nullptr;
     }
@@ -135,7 +144,7 @@ sk_sp<TextureProxy> TextureProxy::Make(const Caps* caps,
 
 sk_sp<TextureProxy> TextureProxy::MakeLazy(SkISize dimensions,
                                            const TextureInfo& textureInfo,
-                                           SkBudgeted budgeted,
+                                           skgpu::Budgeted budgeted,
                                            Volatile isVolatile,
                                            LazyInstantiateCallback&& callback) {
     SkASSERT(textureInfo.isValid());
@@ -144,9 +153,16 @@ sk_sp<TextureProxy> TextureProxy::MakeLazy(SkISize dimensions,
                                                 isVolatile, std::move(callback)));
 }
 
+sk_sp<TextureProxy> TextureProxy::MakeFullyLazy(const TextureInfo& textureInfo,
+                                                skgpu::Budgeted budgeted,
+                                                Volatile isVolatile,
+                                                LazyInstantiateCallback&& callback) {
+    return MakeLazy(SkISize::Make(-1, -1), textureInfo, budgeted, isVolatile, std::move(callback));
+}
+
 #ifdef SK_DEBUG
 void TextureProxy::validateTexture(const Texture* texture) {
-    SkASSERT(fDimensions == texture->dimensions());
+    SkASSERT(this->isFullyLazy() || fDimensions == texture->dimensions());
     SkASSERT(fInfo == texture->textureInfo());
 }
 #endif

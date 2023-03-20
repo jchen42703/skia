@@ -243,10 +243,35 @@ def _RegenerateAllExamplesCPP(input_api, output_api):
   return results
 
 
+def _CheckExamplesForPrivateAPIs(input_api, output_api):
+  """We only want our checked-in examples (aka fiddles) to show public API."""
+  banned_includes = [
+    input_api.re.compile(r'#\s*include\s+("src/.*)'),
+    input_api.re.compile(r'#\s*include\s+("include/private/.*)'),
+  ]
+  file_filter = lambda x: (x.LocalPath().startswith('docs/examples/'))
+  errors = []
+  for affected_file in input_api.AffectedSourceFiles(file_filter):
+    affected_filepath = affected_file.LocalPath()
+    for (line_num, line) in affected_file.ChangedContents():
+      for re in banned_includes:
+        match = re.search(line)
+        if match:
+          errors.append('%s:%s: Fiddles should not use private/internal API like %s.' % (
+                affected_filepath, line_num, match.group(1)))
+
+  if errors:
+    return [output_api.PresubmitError('\n'.join(errors))]
+  return []
+
+
 def _CheckGeneratedBazelBUILDFiles(input_api, output_api):
     if 'win32' in sys.platform:
       # TODO(crbug.com/skia/12541): Remove when Bazel builds work on Windows.
       # Note: `make` is not installed on Windows by default.
+      return []
+    if 'darwin' in sys.platform:
+      # This takes too long on Mac with default settings. Probably due to sandboxing.
       return []
     for affected_file in input_api.AffectedFiles(include_deletes=True):
       affected_file_path = affected_file.LocalPath()
@@ -347,6 +372,38 @@ def _RunCommandAndCheckGitDiff(output_api, command):
   return results
 
 
+def _CheckGNIGenerated(input_api, output_api):
+  """Ensures that the generated *.gni files are current.
+
+  The Bazel project files are authoritative and some *.gni files are
+  generated from them using the exporter_tool. This check ensures they
+  are still current.
+  """
+  if 'win32' in sys.platform:
+    # TODO(crbug.com/skia/12541): Remove when Bazel builds work on Windows.
+    # Note: `make` is not installed on Windows by default.
+    return [
+        output_api.PresubmitPromptWarning(
+            'Skipping Bazel=>GNI export check on Windows (unsupported platform).'
+        )
+    ]
+  if 'darwin' in sys.platform:
+      # This takes too long on Mac with default settings. Probably due to sandboxing.
+      return []
+  should_run = False
+  for affected_file in input_api.AffectedFiles(include_deletes=True):
+    affected_file_path = affected_file.LocalPath()
+    if affected_file_path.endswith('BUILD.bazel') or affected_file_path.endswith('.gni'):
+      should_run = True
+  # Generate GNI files and verify no changes.
+  if should_run:
+    return _RunCommandAndCheckGitDiff(output_api,
+            ['make', '-C', 'bazel', 'generate_gni'])
+
+  # No Bazel build files changed.
+  return []
+
+
 def _CheckBuildifier(input_api, output_api):
   """Runs Buildifier and fails on linting errors, or if it produces any diffs.
 
@@ -389,6 +446,13 @@ def _CheckBannedAPIs(input_api, output_api):
     (r'std::stold\(', 'std::strtold(), which does not throw'),
   ]
 
+  # These defines are either there or not, and using them with just an #if is a
+  # subtle, frustrating bug.
+  existence_defines = ['SK_GANESH', 'SK_GRAPHITE', 'SK_GL', 'SK_VULKAN', 'SK_DAWN',
+                       'SK_METAL', 'SK_DIRECT3D', 'SK_DEBUG']
+  for d in existence_defines:
+    banned_replacements.append(('#if {}'.format(d),
+                                '#if defined({})'.format(d)))
   compiled_replacements = []
   for rep in banned_replacements:
     exceptions = []
@@ -477,9 +541,9 @@ def _CommonChecks(input_api, output_api):
   results.extend(_CheckGNFormatted(input_api, output_api))
   results.extend(_CheckGitConflictMarkers(input_api, output_api))
   results.extend(_RegenerateAllExamplesCPP(input_api, output_api))
+  results.extend(_CheckExamplesForPrivateAPIs(input_api, output_api))
   results.extend(_CheckBazelBUILDFiles(input_api, output_api))
   results.extend(_CheckBannedAPIs(input_api, output_api))
-  results.extend(_CheckGeneratedBazelBUILDFiles(input_api, output_api))
   return results
 
 
@@ -498,6 +562,9 @@ def CheckChangeOnUpload(input_api, output_api):
   results.extend(_CheckBuildifier(input_api, output_api))
   # We don't want this to block the CQ (for now).
   results.extend(_CheckDEPS(input_api, output_api))
+  # Bazelisk is not yet included in the Presubmit job.
+  results.extend(_CheckGeneratedBazelBUILDFiles(input_api, output_api))
+  results.extend(_CheckGNIGenerated(input_api, output_api))
   return results
 
 

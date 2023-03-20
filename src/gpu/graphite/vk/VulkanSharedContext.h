@@ -40,6 +40,8 @@ public:
 
     std::unique_ptr<ResourceProvider> makeResourceProvider(SingleOwner*) override;
 
+    bool checkVkResult(VkResult result) const;
+
 private:
     VulkanSharedContext(const VulkanBackendContext&,
                         sk_sp<const skgpu::VulkanInterface> interface,
@@ -51,7 +53,6 @@ private:
 
     VkDevice fDevice;
     uint32_t fQueueIndex;
-
 };
 
 } // namespace skgpu::graphite

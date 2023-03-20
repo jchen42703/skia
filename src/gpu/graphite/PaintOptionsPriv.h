@@ -12,6 +12,8 @@
 
 namespace skgpu::graphite {
 
+class ShaderCodeDictionary;
+
 /** Class that exposes methods in PaintOptions that are only intended for use internal to Skia.
     This class is purely a privileged window into PaintOptions. It should never have additional
     data members or virtual methods. */
@@ -19,6 +21,13 @@ class PaintOptionsPriv {
 public:
     int numCombinations() const {
         return fPaintOptions->numCombinations();
+    }
+
+    void buildCombinations(
+            const KeyContext& keyContext,
+            bool addPrimitiveBlender,
+            const std::function<void(UniquePaintParamsID)>& processCombination) const {
+        fPaintOptions->buildCombinations(keyContext, addPrimitiveBlender, processCombination);
     }
 
 private:

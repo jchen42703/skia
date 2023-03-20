@@ -13,6 +13,9 @@
 #include "include/gpu/graphite/Recorder.h"
 #include "src/gpu/graphite/SharedContext.h"
 
+class SkBitmap;
+class SkImage;
+
 namespace skgpu::graphite {
 
 class ShaderCodeDictionary;
@@ -27,10 +30,10 @@ public:
 
     ResourceProvider* resourceProvider() { return fRecorder->fResourceProvider.get(); }
 
-    const SkRuntimeEffectDictionary* runtimeEffectDictionary() const {
+    const RuntimeEffectDictionary* runtimeEffectDictionary() const {
         return fRecorder->fRuntimeEffectDict.get();
     }
-    SkRuntimeEffectDictionary* runtimeEffectDictionary() {
+    RuntimeEffectDictionary* runtimeEffectDictionary() {
         return fRecorder->fRuntimeEffectDict.get();
     }
     const ShaderCodeDictionary* shaderCodeDictionary() const {
@@ -56,21 +59,9 @@ public:
         return fRecorder->fTextBlobCache.get();
     }
 
-    // Inserts a texture to buffer transfer task, used by asyncReadPixels methods in Context
-    struct PixelTransferResult {
-        using ConversionFn = void(void* dst, const void* mappedBuffer);
-        // If null then the transfer could not be performed. Otherwise this buffer will contain
-        // the pixel data when the transfer is complete.
-        sk_sp<Buffer> fTransferBuffer;
-        // If this is null then the transfer buffer will contain the data in the requested
-        // color type. Otherwise, when the transfer is done this must be called to convert
-        // from the transfer buffer's color type to the requested color type.
-        std::function<ConversionFn> fPixelConverter;
-    };
-    PixelTransferResult transferPixels(const TextureProxy*,
-                                       const SkImageInfo& srcImageInfo,
-                                       const SkColorInfo& dstColorInfo,
-                                       const SkIRect& srcRect);
+    static sk_sp<SkImage> CreateCachedImage(Recorder*,
+                                            const SkBitmap&,
+                                            Mipmapped = skgpu::Mipmapped::kNo);
 
 #if GRAPHITE_TEST_UTILS
     // used by the Context that created this Recorder to set a back pointer

@@ -11,15 +11,17 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSpan.h"
 #include "include/private/SkColorData.h"
-#include "include/private/SkTDArray.h"
-#include "include/private/SkVx.h"
+#include "include/private/base/SkTDArray.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/graphite/ResourceTypes.h"
 #include "src/gpu/graphite/Uniform.h"
 
 class SkM44;
+class SkMatrix;
 struct SkPoint;
 struct SkRect;
+struct SkV2;
+struct SkV4;
 
 namespace skgpu::graphite {
 
@@ -79,15 +81,18 @@ public:
     void write(const SkM44&);
     void write(const SkPMColor4f&);
     void write(const SkRect&);
-    void write(SkPoint);
+    void write(const SkV2&);
+    void write(const SkV4&);
+    void write(const SkPoint&);
     void write(float f);
     void write(int);
-    void write(skvx::float2);
-    void write(skvx::float4);
 
     void writeArray(SkSpan<const SkColor4f>);
     void writeArray(SkSpan<const SkPMColor4f>);
     void writeArray(SkSpan<const float>);
+
+    void writeHalf(const SkMatrix&);
+    void writeHalfArray(SkSpan<const float>);
 
     // Debug only utilities used for debug assertions and tests.
     void checkReset() const;

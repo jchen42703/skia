@@ -853,28 +853,57 @@ DEF_SIMPLE_GM(gradients_dup_color_stops, canvas, 704, 564) {
 
 static void draw_many_stops(SkCanvas* canvas) {
     const unsigned kStopCount = 200;
-    const SkPoint pts[] = { {50, 50}, {450, 465}};
+    const SkPoint pts[] = { {50, 50}, {450, 450}};
 
     SkColor colors[kStopCount];
     for (unsigned i = 0; i < kStopCount; i++) {
         switch (i % 5) {
-        case 0: colors[i] = SK_ColorRED; break;
+        case 0: colors[i] = SK_ColorRED;   break;
         case 1: colors[i] = SK_ColorGREEN; break;
         case 2: colors[i] = SK_ColorGREEN; break;
-        case 3: colors[i] = SK_ColorBLUE; break;
-        case 4: colors[i] = SK_ColorRED; break;
+        case 3: colors[i] = SK_ColorBLUE;  break;
+        case 4: colors[i] = SK_ColorRED;   break;
         }
     }
 
     SkPaint p;
-    p.setShader(SkGradientShader::MakeLinear(
-        pts, colors, nullptr, std::size(colors), SkTileMode::kClamp));
+    p.setShader(SkGradientShader::MakeLinear(pts, colors, nullptr, std::size(colors),
+                                             SkTileMode::kClamp));
 
     canvas->drawRect(SkRect::MakeXYWH(0, 0, 500, 500), p);
 }
 
 DEF_SIMPLE_GM(gradient_many_stops, canvas, 500, 500) {
     draw_many_stops(canvas);
+}
+
+static void draw_many_hard_stops(SkCanvas* canvas) {
+    const unsigned kStopCount = 300;
+    const SkPoint pts[] = {{50, 50}, {450, 450}};
+
+    SkColor colors[kStopCount];
+    SkScalar pos[kStopCount];
+    for (unsigned i = 0; i < kStopCount; i++) {
+        switch (i % 6) {
+            case 0: colors[i] = SK_ColorRED;   break;
+            case 1: colors[i] = SK_ColorGREEN; break;
+            case 2: colors[i] = SK_ColorGREEN; break;
+            case 3: colors[i] = SK_ColorBLUE;  break;
+            case 4: colors[i] = SK_ColorBLUE;  break;
+            case 5: colors[i] = SK_ColorRED;   break;
+        }
+        pos[i] = (2.0f * (i / 2)) / kStopCount;
+    }
+
+    SkPaint p;
+    p.setShader(SkGradientShader::MakeLinear(pts, colors, pos, std::size(colors),
+                                             SkTileMode::kClamp));
+
+    canvas->drawRect(SkRect::MakeXYWH(0, 0, 500, 500), p);
+}
+
+DEF_SIMPLE_GM(gradient_many_hard_stops, canvas, 500, 500) {
+    draw_many_hard_stops(canvas);
 }
 
 static void draw_circle_shader(SkCanvas* canvas, SkScalar cx, SkScalar cy, SkScalar r,
@@ -1119,7 +1148,7 @@ DEF_SIMPLE_GM_BG(gradients_color_space, canvas, 265, 205, SK_ColorGRAY) {
     }
 }
 
-DEF_SIMPLE_GM_BG(gradients_hue_method, canvas, 285, 105, SK_ColorGRAY) {
+DEF_SIMPLE_GM_BG(gradients_hue_method, canvas, 285, 155, SK_ColorGRAY) {
     using HM = SkGradientShader::Interpolation::HueMethod;
 
     struct Config {
@@ -1151,6 +1180,29 @@ DEF_SIMPLE_GM_BG(gradients_hue_method, canvas, 285, 105, SK_ColorGRAY) {
                                SkFont{}, labelPaint);
         canvas->translate(0, 25);
     }
+
+    // Test a bug (skia:13941) with how gradient shaders handle explicit positions.
+    // If there are no explicit positions at 0 or 1, those are automatically added, with copies of
+    // the first/last color. When using kLonger, this can produce extra gradient that should
+    // actually be solid. This gradient *should* be:
+    //   |- solid red -|- red to green, the long way -|- solid green -|
+    interpolation.fHueMethod = HM::kLonger;
+    SkScalar middlePos[] = { 0.3f, 0.7f };
+    p.setShader(SkGradientShader::MakeLinear(pts, colors, SkColorSpace::MakeSRGB(), middlePos, 2,
+                                             SkTileMode::kClamp, interpolation, nullptr));
+    canvas->drawRect({0, 0, 200, 20}, p);
+    canvas->translate(0, 25);
+
+    // However... if the user explicitly includes those duplicate color stops in kLonger mode,
+    // we expect the gradient to do a full rotation in those regions:
+    //  |- full circle, red to red -|- red to green -|- full circle, green to green -|
+    colors[0] = colors[1] = SkColors::kRed;
+    colors[2] = colors[3] = SkColors::kGreen;
+    SkScalar allPos[] = { 0.0f, 0.3f, 0.7f, 1.0f };
+    p.setShader(SkGradientShader::MakeLinear(pts, colors, SkColorSpace::MakeSRGB(), allPos, 4,
+                                             SkTileMode::kClamp, interpolation, nullptr));
+    canvas->drawRect({0, 0, 200, 20}, p);
+    canvas->translate(0, 25);
 }
 
 DEF_SIMPLE_GM_BG(gradients_color_space_tilemode, canvas, 360, 105, SK_ColorGRAY) {

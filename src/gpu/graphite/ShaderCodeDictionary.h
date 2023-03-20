@@ -10,17 +10,17 @@
 
 #include "include/core/SkSpan.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkMacros.h"
 #include "include/private/SkSpinlock.h"
-#include "include/private/SkTHash.h"
-#include "include/private/SkThreadAnnotations.h"
-#include "include/private/SkTo.h"
-#include "include/private/SkUniquePaintParamsID.h"
-#include "src/core/SkArenaAlloc.h"
-#include "src/core/SkBuiltInCodeSnippetID.h"
+#include "include/private/base/SkMacros.h"
+#include "include/private/base/SkThreadAnnotations.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkArenaAlloc.h"
 #include "src/core/SkEnumBitMask.h"
+#include "src/core/SkTHash.h"
+#include "src/gpu/graphite/BuiltInCodeSnippetID.h"
 #include "src/gpu/graphite/PaintParamsKey.h"
 #include "src/gpu/graphite/Uniform.h"
+#include "src/gpu/graphite/UniquePaintParamsID.h"
 
 #include <array>
 #include <cstddef>
@@ -31,16 +31,13 @@
 #include <vector>
 
 class SkRuntimeEffect;
-class SkRuntimeEffectDictionary;
 
 namespace skgpu::graphite {
 
-enum class Layout;
 class RenderStep;
+class RuntimeEffectDictionary;
 
-#ifdef SK_ENABLE_PRECOMPILE
-class BlenderID;
-#endif
+struct ResourceBindingRequirements;
 
 // TODO: How to represent the type (e.g., 2D) of texture being sampled?
 class TextureAndSampler {
@@ -57,7 +54,8 @@ enum class SnippetRequirementFlags : uint32_t {
     kNone = 0x0,
     kLocalCoords = 0x1,
     kPriorStageOutput = 0x2,  // AKA the "input" color, or the "source" color for a blender
-    kDestColor = 0x4,
+    kRuntimeShaderDstColor = 0x4,
+    kBlendAgainstPrimitiveColor = 0x8,
 };
 SK_MAKE_BITMASK_OPS(SnippetRequirementFlags);
 
@@ -69,7 +67,7 @@ struct ShaderSnippet {
 
     struct Args {
         std::string_view fPriorStageOutput;
-        std::string_view fDestColor;
+        std::string_view fRuntimeShaderDstColor;
         std::string_view fFragCoord;
     };
     using GenerateExpressionForSnippetFn = std::string (*)(const ShaderInfo& shaderInfo,
@@ -109,8 +107,11 @@ struct ShaderSnippet {
     bool needsPriorStageOutput() const {
         return fSnippetRequirementFlags & SnippetRequirementFlags::kPriorStageOutput;
     }
-    bool needsDestColor() const {
-        return fSnippetRequirementFlags & SnippetRequirementFlags::kDestColor;
+    bool needsRuntimeShaderDstColor() const {
+        return fSnippetRequirementFlags & SnippetRequirementFlags::kRuntimeShaderDstColor;
+    }
+    bool blendAgainstPrimitiveColor() const {
+        return fSnippetRequirementFlags & SnippetRequirementFlags::kBlendAgainstPrimitiveColor;
     }
 
     const char* fName = nullptr;
@@ -128,7 +129,7 @@ struct ShaderSnippet {
 // for program creation and its invocation.
 class ShaderInfo {
 public:
-    ShaderInfo(const SkRuntimeEffectDictionary* rteDict = nullptr,
+    ShaderInfo(const RuntimeEffectDictionary* rteDict = nullptr,
                const char* ssboIndex = nullptr)
             : fRuntimeEffectDictionary(rteDict)
             , fSsboIndex(ssboIndex) {}
@@ -150,7 +151,7 @@ public:
     const PaintParamsKey::BlockReader& blockReader(int index) const {
         return fBlockReaders[index];
     }
-    const SkRuntimeEffectDictionary* runtimeEffectDictionary() const {
+    const RuntimeEffectDictionary* runtimeEffectDictionary() const {
         return fRuntimeEffectDictionary;
     }
     const char* ssboIndex() const { return fSsboIndex; }
@@ -160,17 +161,17 @@ public:
     }
     const skgpu::BlendInfo& blendInfo() const { return fBlendInfo; }
 
-    std::string toSkSL(const Layout paintUniformsLayout,
-                       const Layout renderStepUniformsLayout,
+    std::string toSkSL(const ResourceBindingRequirements& bindingReqs,
                        const RenderStep* step,
-                       const bool defineShadingSsboIndexVarying,
-                       const bool defineLocalCoordsVarying) const;
+                       const bool useStorageBuffers,
+                       const bool defineLocalCoordsVarying,
+                       int* numTexturesAndSamplersUsed) const;
 
 private:
     std::vector<PaintParamsKey::BlockReader> fBlockReaders;
 
     SkEnumBitMask<SnippetRequirementFlags> fSnippetRequirementFlags{SnippetRequirementFlags::kNone};
-    const SkRuntimeEffectDictionary* fRuntimeEffectDictionary = nullptr;
+    const RuntimeEffectDictionary* fRuntimeEffectDictionary = nullptr;
 
     const char* fSsboIndex;
 
@@ -185,7 +186,7 @@ public:
 
     struct Entry {
     public:
-        SkUniquePaintParamsID uniqueID() const {
+        UniquePaintParamsID uniqueID() const {
             SkASSERT(fUniqueID.isValid());
             return fUniqueID;
         }
@@ -202,10 +203,10 @@ public:
 
         void setUniqueID(uint32_t newID) {
             SkASSERT(!fUniqueID.isValid());
-            fUniqueID = SkUniquePaintParamsID(newID);
+            fUniqueID = UniquePaintParamsID(newID);
         }
 
-        SkUniquePaintParamsID fUniqueID;  // fixed-size (uint32_t) unique ID assigned to a key
+        UniquePaintParamsID fUniqueID;  // fixed-size (uint32_t) unique ID assigned to a key
         PaintParamsKey fKey; // variable-length paint key descriptor
 
         // The BlendInfo isn't used in the hash (that is the key's job) but it does directly vary
@@ -216,11 +217,11 @@ public:
 
     const Entry* findOrCreate(PaintParamsKeyBuilder*) SK_EXCLUDES(fSpinLock);
 
-    const Entry* lookup(SkUniquePaintParamsID) const SK_EXCLUDES(fSpinLock);
+    const Entry* lookup(UniquePaintParamsID) const SK_EXCLUDES(fSpinLock);
 
-    SkSpan<const Uniform> getUniforms(SkBuiltInCodeSnippetID) const;
+    SkSpan<const Uniform> getUniforms(BuiltInCodeSnippetID) const;
     SkEnumBitMask<SnippetRequirementFlags> getSnippetRequirementFlags(
-            SkBuiltInCodeSnippetID id) const {
+            BuiltInCodeSnippetID id) const {
         return fBuiltInCodeSnippets[(int) id].fSnippetRequirementFlags;
     }
 
@@ -230,21 +231,16 @@ public:
 
     // This method can return nullptr
     const ShaderSnippet* getEntry(int codeSnippetID) const;
-    const ShaderSnippet* getEntry(SkBuiltInCodeSnippetID codeSnippetID) const {
+    const ShaderSnippet* getEntry(BuiltInCodeSnippetID codeSnippetID) const {
         return this->getEntry(SkTo<int>(codeSnippetID));
     }
 
-    void getShaderInfo(SkUniquePaintParamsID, ShaderInfo*) const;
+    void getShaderInfo(UniquePaintParamsID, ShaderInfo*) const;
 
     int findOrCreateRuntimeEffectSnippet(const SkRuntimeEffect* effect);
 
     int addUserDefinedSnippet(const char* name,
                               SkSpan<const PaintParamsKey::DataPayloadField> expectations);
-
-#if defined(SK_ENABLE_PRECOMPILE)
-    BlenderID addUserDefinedBlender(sk_sp<SkRuntimeEffect>);
-    const ShaderSnippet* getEntry(BlenderID) const;
-#endif
 
 private:
     Entry* makeEntry(const PaintParamsKey&, const skgpu::BlendInfo&);

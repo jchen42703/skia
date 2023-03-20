@@ -8,33 +8,34 @@
 #ifndef SkImageGenerator_DEFINED
 #define SkImageGenerator_DEFINED
 
-#include "include/core/SkBitmap.h"
-#include "include/core/SkColor.h"
+#include "include/core/SkData.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
-#include "include/core/SkSurfaceProps.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkRefCnt.h"
 #include "include/core/SkYUVAPixmaps.h"
+#include "include/private/base/SkAPI.h"
 
+#if defined(SK_GANESH)
+#include "include/gpu/GrTypes.h"
+#endif
+
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 
 class GrRecordingContext;
 class GrSurfaceProxyView;
-class GrSamplerState;
-class SkBitmap;
-class SkData;
+class SkColorSpace;
 class SkMatrix;
 class SkPaint;
 class SkPicture;
-
+class SkSurfaceProps;
+enum SkAlphaType : int;
 enum class GrImageTexGenPolicy : int;
-
-#if SK_GRAPHITE_ENABLED
-namespace skgpu::graphite {
-enum class Mipmapped : bool;
-class Recorder;
-}
-#endif
+namespace skgpu { enum class Mipmapped : bool; }
+struct SkISize;
 
 class SK_API SkImageGenerator {
 public:
@@ -122,7 +123,7 @@ public:
      */
     bool getYUVAPlanes(const SkYUVAPixmaps& yuvaPixmaps);
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     /**
      *  If the generator can natively/efficiently return its pixels as a GPU image (backed by a
      *  texture) this will return that image. If not, this will return NULL.
@@ -144,14 +145,14 @@ public:
      */
     GrSurfaceProxyView generateTexture(GrRecordingContext*,
                                        const SkImageInfo& info,
-                                       GrMipmapped mipmapped,
+                                       skgpu::Mipmapped mipmapped,
                                        GrImageTexGenPolicy);
 #endif
 
-#if SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     sk_sp<SkImage> makeTextureImage(skgpu::graphite::Recorder*,
                                     const SkImageInfo&,
-                                    skgpu::graphite::Mipmapped);
+                                    skgpu::Mipmapped);
 #endif
 
     /**
@@ -174,8 +175,11 @@ public:
                                                              const SkMatrix*, const SkPaint*,
                                                              SkImage::BitDepth,
                                                              sk_sp<SkColorSpace>,
-                                                             SkSurfaceProps props = {});
-
+                                                             SkSurfaceProps props);
+    static std::unique_ptr<SkImageGenerator> MakeFromPicture(const SkISize&, sk_sp<SkPicture>,
+                                                             const SkMatrix*, const SkPaint*,
+                                                             SkImage::BitDepth,
+                                                             sk_sp<SkColorSpace>);
 protected:
     static constexpr int kNeedNewImageUniqueID = 0;
 
@@ -188,7 +192,7 @@ protected:
     virtual bool onQueryYUVAInfo(const SkYUVAPixmapInfo::SupportedDataTypes&,
                                  SkYUVAPixmapInfo*) const { return false; }
     virtual bool onGetYUVAPlanes(const SkYUVAPixmaps&) { return false; }
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     // returns nullptr
     virtual GrSurfaceProxyView onGenerateTexture(GrRecordingContext*, const SkImageInfo&,
                                                  GrMipmapped, GrImageTexGenPolicy);
@@ -200,10 +204,10 @@ protected:
     virtual GrSurfaceOrigin origin() const { return kTopLeft_GrSurfaceOrigin; }
 #endif
 
-#if SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     virtual sk_sp<SkImage> onMakeTextureImage(skgpu::graphite::Recorder*,
                                               const SkImageInfo&,
-                                              skgpu::graphite::Mipmapped);
+                                              skgpu::Mipmapped);
 #endif
 
 private:

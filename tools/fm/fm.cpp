@@ -11,10 +11,10 @@
 #include "include/docs/SkPDFDocument.h"
 #include "include/gpu/GrContextOptions.h"
 #include "include/gpu/GrDirectContext.h"
-#include "include/private/SkTHash.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkMD5.h"
 #include "src/core/SkOSFile.h"
+#include "src/core/SkTHash.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrGpu.h"
@@ -48,6 +48,8 @@
     #include "modules/skottie/include/Skottie.h"
     #include "modules/skresources/include/SkResources.h"
 #endif
+
+using namespace skia_private;
 
 using sk_gpu_test::GrContextFactory;
 
@@ -144,10 +146,9 @@ static void init(Source* source, std::shared_ptr<skiagm::GM> gm) {
     source->size  = gm->getISize();
     source->tweak = [gm](GrContextOptions* options) { gm->modifyGrContextOptions(options); };
     source->draw  = [gm](SkCanvas* canvas) {
-        auto direct = GrAsDirectContext(canvas->recordingContext());
 
         SkString err;
-        switch (gm->gpuSetup(direct, canvas, &err)) {
+        switch (gm->gpuSetup(canvas, &err)) {
             case skiagm::DrawResult::kOk  : break;
             case skiagm::DrawResult::kSkip: return skip;
             case skiagm::DrawResult::kFail: return fail(err);
@@ -322,11 +323,8 @@ static sk_sp<SkImage> draw_with_gpu(std::function<bool(SkCanvas*)> draw,
 
     switch (surfaceType) {
         case SurfaceType::kDefault:
-            surface = SkSurface::MakeRenderTarget(context,
-                                                  SkBudgeted::kNo,
-                                                  info,
-                                                  FLAGS_samples,
-                                                  &props);
+            surface = SkSurface::MakeRenderTarget(
+                    context, skgpu::Budgeted::kNo, info, FLAGS_samples, &props);
             break;
 
         case SurfaceType::kBackendTexture:
@@ -442,7 +440,7 @@ int main(int argc, char** argv) {
 
     const int replicas = std::max(1, FLAGS_race);
 
-    SkTArray<Source> sources;
+    TArray<Source> sources;
     for (const SkString& name : FLAGS_sources)
     for (int replica = 0; replica < replicas; replica++) {
         Source* source = &sources.push_back();

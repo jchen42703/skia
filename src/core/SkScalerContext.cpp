@@ -14,11 +14,12 @@
 #include "include/core/SkPathEffect.h"
 #include "include/core/SkStrokeRec.h"
 #include "include/private/SkColorData.h"
-#include "include/private/SkTo.h"
-#include "src/core/SkAutoMalloc.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkAutoMalloc.h"
 #include "src/core/SkAutoPixmapStorage.h"
+#include "src/core/SkBlitter_A8.h"
 #include "src/core/SkDescriptor.h"
-#include "src/core/SkDraw.h"
+#include "src/core/SkDrawBase.h"
 #include "src/core/SkFontPriv.h"
 #include "src/core/SkGlyph.h"
 #include "src/core/SkMaskGamma.h"
@@ -530,8 +531,9 @@ void SkScalerContext::GenerateImageFromPath(
     }
     sk_bzero(dst.writable_addr(), dst.computeByteSize());
 
-    SkDraw  draw;
+    SkDrawBase  draw;
     SkMatrixProvider matrixProvider(matrix);
+    draw.fBlitterChooser = SkA8Blitter_Choose;
     draw.fDst            = dst;
     draw.fRC             = &clip;
     draw.fMatrixProvider = &matrixProvider;

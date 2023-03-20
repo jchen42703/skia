@@ -11,8 +11,8 @@
 #include "include/gpu/graphite/TextureInfo.h"
 #include "include/gpu/graphite/vk/VulkanGraphiteTypes.h"
 #include "include/gpu/vk/VulkanExtensions.h"
-#include "src/gpu/ganesh/TestFormatColorTypeCombination.h"
-#include "src/gpu/graphite/vk/VulkanGraphiteUtils.h"
+#include "src/gpu/graphite/vk/VulkanGraphiteUtilsPriv.h"
+#include "src/gpu/vk/VulkanUtilsPriv.h"
 
 #ifdef SK_BUILD_FOR_ANDROID
 #include <sys/system_properties.h>
@@ -54,6 +54,20 @@ void VulkanCaps::init(const skgpu::VulkanInterface* vkInterface,
         fShouldAlwaysUseDedicatedImageMemory = true;
     }
 #endif
+
+    if (physDevProperties.vendorID == kNvidia_VkVendor ||
+        physDevProperties.vendorID == kAMD_VkVendor) {
+        // On discrete GPUs, it can be faster to read gpu-only memory compared to memory that is
+        // also mappable on the host.
+        fGpuOnlyBuffersMorePerformant = true;
+
+        // On discrete GPUs we try to use special DEVICE_LOCAL and HOST_VISIBLE memory for our
+        // cpu write, gpu read buffers. This memory is not ideal to be kept persistently mapped.
+        // Some discrete GPUs do not expose this special memory, however we still disable
+        // persistently mapped buffers for all of them since most GPUs with updated drivers do
+        // expose it. If this becomes an issue we can try to be more fine grained.
+        fShouldPersistentlyMapCpuToGpuBuffers = false;
+    }
 
     this->initFormatTable(vkInterface, physDev, physDevProperties);
     this->initDepthStencilFormatTable(vkInterface, physDev, physDevProperties);
@@ -183,7 +197,7 @@ TextureInfo VulkanCaps::getDefaultMSAATextureInfo(const TextureInfo& singleSampl
 TextureInfo VulkanCaps::getDefaultDepthStencilTextureInfo(SkEnumBitMask<DepthStencilFlags> flags,
                                                           uint32_t sampleCount,
                                                           Protected isProtected) const {
-    VkFormat format = getFormatFromDepthStencilFlags(flags);
+    VkFormat format = this->getFormatFromDepthStencilFlags(flags);
     const DepthStencilFormatInfo& formatInfo = this->getDepthStencilFormatInfo(format);
     if ( (isProtected == Protected::kYes && !this->protectedSupport()) ||
          !formatInfo.isDepthStencilSupported(formatInfo.fFormatProperties.optimalTilingFeatures) ||
@@ -203,6 +217,15 @@ TextureInfo VulkanCaps::getDefaultDepthStencilTextureInfo(SkEnumBitMask<DepthSte
     info.fAspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
     return info;
+}
+
+uint32_t VulkanCaps::channelMask(const TextureInfo& textureInfo) const {
+    return skgpu::VkFormatChannels(textureInfo.vulkanTextureSpec().fFormat);
+}
+
+size_t VulkanCaps::bytesPerPixel(const TextureInfo& info) const {
+    const VkFormat format = info.vulkanTextureSpec().fFormat;
+    return VkFormatBytesPerBlock(format);
 }
 
 void VulkanCaps::initFormatTable(const skgpu::VulkanInterface* interface,
@@ -548,7 +571,7 @@ void VulkanCaps::initFormatTable(const skgpu::VulkanInterface* interface,
             int ctIdx = 0;
             // Format: VK_FORMAT_R16G16B16A16_UNORM, Surface: kRGBA_16161616
             {
-                constexpr SkColorType ct = SkColorType::kRGBA_F16_SkColorType;
+                constexpr SkColorType ct = SkColorType::kR16G16B16A16_unorm_SkColorType;
                 auto& ctInfo = info.fColorTypeInfos[ctIdx++];
                 ctInfo.fColorType = ct;
                 ctInfo.fTransferColorType = ct;

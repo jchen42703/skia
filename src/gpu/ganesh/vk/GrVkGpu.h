@@ -20,17 +20,17 @@
 
 class GrDirectContext;
 class GrPipeline;
-
 class GrVkBuffer;
 class GrVkCommandPool;
 class GrVkFramebuffer;
+class GrVkOpsRenderPass;
 class GrVkPipeline;
 class GrVkPipelineState;
 class GrVkPrimaryCommandBuffer;
-class GrVkOpsRenderPass;
 class GrVkRenderPass;
 class GrVkSecondaryCommandBuffer;
 class GrVkTexture;
+enum class SkTextureCompressionType;
 
 namespace skgpu { struct VulkanInterface; }
 
@@ -73,7 +73,7 @@ public:
     const VkPhysicalDeviceMemoryProperties& physicalDeviceMemoryProperties() const {
         return fPhysDevMemProps;
     }
-    bool protectedContext() const { return fProtectedContext == GrProtected::kYes; }
+    bool protectedContext() const { return fProtectedContext == skgpu::Protected::kYes; }
 
     GrVkResourceProvider& resourceProvider() { return fResourceProvider; }
 
@@ -247,17 +247,18 @@ private:
                                      const GrBackendFormat&,
                                      GrRenderable,
                                      int renderTargetSampleCnt,
-                                     SkBudgeted,
+                                     skgpu::Budgeted,
                                      GrProtected,
                                      int mipLevelCount,
                                      uint32_t levelClearMask,
                                      std::string_view label) override;
     sk_sp<GrTexture> onCreateCompressedTexture(SkISize dimensions,
                                                const GrBackendFormat&,
-                                               SkBudgeted,
+                                               skgpu::Budgeted,
                                                GrMipmapped,
                                                GrProtected,
-                                               const void* data, size_t dataSize) override;
+                                               const void* data,
+                                               size_t dataSize) override;
 
     sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&,
                                           GrWrapOwnership,
@@ -378,7 +379,7 @@ private:
                               GrColorType colorType,
                               const GrMipLevel texels[],
                               int mipLevelCount);
-    bool uploadTexDataCompressed(GrVkImage* tex, SkImage::CompressionType compression,
+    bool uploadTexDataCompressed(GrVkImage* tex, SkTextureCompressionType compression,
                                  VkFormat vkFormat, SkISize dimensions, GrMipmapped mipmapped,
                                  const void* data, size_t dataSize);
     void resolveImage(GrSurface* dst, GrVkRenderTarget* src, const SkIRect& srcRect,
@@ -425,7 +426,7 @@ private:
     // vulkan context.
     bool                                                  fDisconnected;
 
-    GrProtected                                           fProtectedContext;
+    skgpu::Protected                                      fProtectedContext;
 
     std::unique_ptr<GrVkOpsRenderPass>                    fCachedOpsRenderPass;
 

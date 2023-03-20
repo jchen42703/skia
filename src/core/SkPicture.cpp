@@ -10,9 +10,9 @@
 #include "include/core/SkImageGenerator.h"
 #include "include/core/SkPictureRecorder.h"
 #include "include/core/SkSerialProcs.h"
-#include "include/private/SkTo.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkMathPriv.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/core/SkMathPriv.h"
 #include "src/core/SkPictureData.h"
 #include "src/core/SkPicturePlayback.h"
 #include "src/core/SkPicturePriv.h"
@@ -22,7 +22,7 @@
 
 #include <atomic>
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/private/chromium/Slug.h"
 #endif
 

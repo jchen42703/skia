@@ -18,15 +18,18 @@
 #include "include/core/SkString.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/SkColorData.h"
 #include "include/private/SkSLSampleUsage.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkTArray.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/ganesh/GrAppliedClip.h"
 #include "src/gpu/ganesh/GrCaps.h"
@@ -217,7 +220,7 @@ DEF_GANESH_TEST_FOR_ALL_CONTEXTS(ProcessorRefTest, reporter, ctxInfo, CtsEnforce
                                                    1,
                                                    GrMipmapped::kNo,
                                                    SkBackingFit::kExact,
-                                                   SkBudgeted::kYes,
+                                                   skgpu::Budgeted::kYes,
                                                    GrProtected::kNo,
                                                    /*label=*/"ProcessorRefTest");
 
@@ -442,7 +445,7 @@ static bool log_pixels(GrColor* pixels, int widthHeight, SkString* dst) {
             SkImageInfo::Make(widthHeight, widthHeight, kRGBA_8888_SkColorType, kLogAlphaType);
     SkBitmap bmp;
     bmp.installPixels(info, pixels, widthHeight * sizeof(GrColor));
-    return BipmapToBase64DataURI(bmp, dst);
+    return BitmapToBase64DataURI(bmp, dst);
 }
 
 static bool log_texture_view(GrDirectContext* dContext, GrSurfaceProxyView src, SkString* dst) {
@@ -453,7 +456,7 @@ static bool log_texture_view(GrDirectContext* dContext, GrSurfaceProxyView src, 
     SkBitmap bm;
     SkAssertResult(bm.tryAllocPixels(ii));
     SkAssertResult(sContext->readPixels(dContext, bm.pixmap(), {0, 0}));
-    return BipmapToBase64DataURI(bm, dst);
+    return BitmapToBase64DataURI(bm, dst);
 }
 
 static bool fuzzy_color_equals(const SkPMColor4f& c1, const SkPMColor4f& c2) {

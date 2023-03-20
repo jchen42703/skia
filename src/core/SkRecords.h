@@ -15,6 +15,7 @@
 #include "include/core/SkImageFilter.h"
 #include "include/core/SkM44.h"
 #include "include/core/SkMatrix.h"
+#include "include/core/SkMesh.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPicture.h"
 #include "include/core/SkRRect.h"
@@ -26,7 +27,7 @@
 #include "include/core/SkVertices.h"
 #include "src/core/SkDrawShadowInfo.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/private/chromium/Slug.h"
 #endif
 
@@ -81,6 +82,7 @@ namespace SkRecords {
     M(DrawSlug)                                                     \
     M(DrawAtlas)                                                    \
     M(DrawVertices)                                                 \
+    M(DrawMesh)                                                     \
     M(DrawShadowRec)                                                \
     M(DrawAnnotation)                                               \
     M(DrawEdgeAAQuad)                                               \
@@ -298,7 +300,7 @@ RECORD(DrawTextBlob, kDraw_Tag|kHasText_Tag|kHasPaint_Tag,
         sk_sp<const SkTextBlob> blob;
         SkScalar x;
         SkScalar y)
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 RECORD(DrawSlug, kDraw_Tag|kHasText_Tag,
        sk_sp<const sktext::gpu::Slug> slug)
 #else
@@ -324,6 +326,14 @@ RECORD(DrawVertices, kDraw_Tag|kHasPaint_Tag,
         SkPaint paint;
         sk_sp<SkVertices> vertices;
         SkBlendMode bmode)
+#ifdef SK_ENABLE_SKSL
+RECORD(DrawMesh, kDraw_Tag|kHasPaint_Tag,
+       SkPaint paint;
+       SkMesh mesh;
+       sk_sp<SkBlender> blender)
+#else
+RECORD(DrawMesh, 0)
+#endif
 RECORD(DrawShadowRec, kDraw_Tag,
        PreCachedPath path;
        SkDrawShadowRec rec)
@@ -339,7 +349,7 @@ RECORD(DrawEdgeAAQuad, kDraw_Tag,
        SkBlendMode mode)
 RECORD(DrawEdgeAAImageSet, kDraw_Tag|kHasImage_Tag|kHasPaint_Tag,
        Optional<SkPaint> paint;
-       SkAutoTArray<SkCanvas::ImageSetEntry> set;
+       skia_private::AutoTArray<SkCanvas::ImageSetEntry> set;
        int count;
        PODArray<SkPoint> dstClips;
        PODArray<SkMatrix> preViewMatrices;

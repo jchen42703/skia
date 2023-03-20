@@ -11,19 +11,20 @@
 #include "include/core/SkRRect.h"
 #include "include/core/SkStrokeRec.h"
 #include "include/core/SkVertices.h"
+#include "src/base/SkMathPriv.h"
 #include "src/core/SkBlurMask.h"
 #include "src/core/SkGpuBlurUtils.h"
 #include "src/core/SkMaskFilterBase.h"
-#include "src/core/SkMathPriv.h"
 #include "src/core/SkMatrixProvider.h"
 #include "src/core/SkRRectPriv.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkStringUtils.h"
 #include "src/core/SkWriteBuffer.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/gpu/GrRecordingContext.h"
 #include "src/core/SkRuntimeEffectPriv.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrFragmentProcessor.h"
 #include "src/gpu/ganesh/GrRecordingContextPriv.h"
@@ -33,6 +34,7 @@
 #include "src/gpu/ganesh/GrTextureProxy.h"
 #include "src/gpu/ganesh/GrThreadSafeCache.h"
 #include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
 #include "src/gpu/ganesh/effects/GrBlendFragmentProcessor.h"
 #include "src/gpu/ganesh/effects/GrMatrixEffect.h"
 #include "src/gpu/ganesh/effects/GrSkSLFP.h"
@@ -41,10 +43,9 @@
 #include "src/gpu/ganesh/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/ganesh/glsl/GrGLSLProgramDataManager.h"
 #include "src/gpu/ganesh/glsl/GrGLSLUniformHandler.h"
-#if SK_GPU_V1
-#include "src/gpu/ganesh/SurfaceDrawContext.h"
-#endif // SK_GPU_V1
-#endif // SK_SUPPORT_GPU
+#endif // defined(SK_GANESH)
+
+using namespace skia_private;
 
 class SkBlurMaskFilterImpl : public SkMaskFilterBase {
 public:
@@ -55,7 +56,7 @@ public:
     bool filterMask(SkMask* dst, const SkMask& src, const SkMatrix&,
                     SkIPoint* margin) const override;
 
-#if SK_SUPPORT_GPU && SK_GPU_V1
+#if defined(SK_GANESH)
     bool canFilterMaskGPU(const GrStyledShape& shape,
                           const SkIRect& devSpaceShapeBounds,
                           const SkIRect& clipBounds,
@@ -578,7 +579,7 @@ void SkBlurMaskFilterImpl::flatten(SkWriteBuffer& buffer) const {
 }
 
 
-#if SK_SUPPORT_GPU && SK_GPU_V1
+#if defined(SK_GANESH) && defined(SK_GANESH)
 
 ///////////////////////////////////////////////////////////////////////////////
 //  Circle Blur
@@ -701,7 +702,7 @@ static void create_circle_profile(uint8_t* weights,
     // Number of x steps at which to apply kernel in y to cover all the profile samples in x.
     int numYSteps = numSteps + 2 * halfKernelSize;
 
-    SkAutoTArray<float> bulkAlloc(halfKernelSize + halfKernelSize + numYSteps);
+    AutoTArray<float> bulkAlloc(halfKernelSize + halfKernelSize + numYSteps);
     float* halfKernel = bulkAlloc.get();
     float* summedKernel = bulkAlloc.get() + halfKernelSize;
     float* yEvals = bulkAlloc.get() + 2 * halfKernelSize;
@@ -724,7 +725,7 @@ static void create_half_plane_profile(uint8_t* profile, int profileWidth) {
     float sigma = profileWidth / 6.f;
     int halfKernelSize = profileWidth / 2;
 
-    SkAutoTArray<float> halfKernel(halfKernelSize);
+    AutoTArray<float> halfKernel(halfKernelSize);
 
     // The half kernel should sum to 0.5.
     const float tot = 2.f * make_unnormalized_half_kernel(halfKernel.get(), halfKernelSize, sigma);
@@ -1076,7 +1077,7 @@ static bool fillin_view_on_gpu(GrDirectContext* dContext,
                                const SkRRect& rrectToDraw,
                                const SkISize& dimensions,
                                float xformedSigma) {
-#if SK_GPU_V1
+#if defined(SK_GANESH)
     SkASSERT(!SkGpuBlurUtils::IsEffectivelyZeroSigma(xformedSigma));
 
     // We cache blur masks. Use default surface props here so we can use the same cached mask
@@ -1666,7 +1667,7 @@ GrSurfaceProxyView SkBlurMaskFilterImpl::filterMaskGPU(GrRecordingContext* conte
     return surfaceDrawContext->readSurfaceView();
 }
 
-#endif // SK_SUPPORT_GPU && SK_GPU_V1
+#endif // defined(SK_GANESH) && defined(SK_GANESH)
 
 void sk_register_blur_maskfilter_createproc() { SK_REGISTER_FLATTENABLE(SkBlurMaskFilterImpl); }
 

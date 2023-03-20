@@ -16,6 +16,7 @@
 namespace skgpu {
 class MutableTextureStateRef;
 class RefCntedCallback;
+enum class Budgeted : bool;
 };
 
 namespace skgpu::graphite {
@@ -38,7 +39,11 @@ protected:
             const TextureInfo& info,
             sk_sp<MutableTextureStateRef> mutableState,
             Ownership,
-            SkBudgeted);
+            skgpu::Budgeted);
+
+    MutableTextureStateRef* mutableState() const;
+
+    void invokeReleaseProc() override;
 
 private:
     SkISize fDimensions;

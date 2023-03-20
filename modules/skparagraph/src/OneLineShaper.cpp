@@ -2,7 +2,7 @@
 
 #include "modules/skparagraph/src/Iterators.h"
 #include "modules/skparagraph/src/OneLineShaper.h"
-#include "src/utils/SkUTF.h"
+#include "src/base/SkUTF.h"
 #include <algorithm>
 #include <unordered_set>
 
@@ -402,7 +402,7 @@ void OneLineShaper::iterateThroughFontStyles(TextRange textRange,
 
         combinedBlock.fRange = blockRange;
         combinedBlock.fStyle = block.fStyle;
-        features.reset();
+        features.clear();
         addFeatures(block);
     }
 
@@ -594,7 +594,7 @@ bool OneLineShaper::shape() {
             (TextRange textRange, SkSpan<Block> styleSpan, SkScalar& advanceX, TextIndex textStart, uint8_t defaultBidiLevel) {
 
         // Set up the shaper and shape the next
-        auto shaper = SkShaper::MakeShapeDontWrapOrReorder();
+        auto shaper = SkShaper::MakeShapeDontWrapOrReorder(fParagraph->fUnicode->copy());
         if (shaper == nullptr) {
             // For instance, loadICU does not work. We have to stop the process
             return false;

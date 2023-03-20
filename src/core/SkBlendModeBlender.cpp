@@ -6,15 +6,18 @@
  */
 
 #include "src/core/SkBlendModeBlender.h"
+#include "src/core/SkBlendModePriv.h"
+#include "src/core/SkEffectPriv.h"
+#include "src/core/SkRasterPipeline.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkWriteBuffer.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "src/gpu/ganesh/GrFragmentProcessor.h"
 #include "src/gpu/ganesh/effects/GrBlendFragmentProcessor.h"
 #endif
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 #include "src/gpu/graphite/KeyHelpers.h"
 #include "src/gpu/graphite/PaintParamsKey.h"
 #endif
@@ -64,13 +67,15 @@ sk_sp<SkBlender> SkBlender::Mode(SkBlendMode mode) {
 #undef RETURN_SINGLETON_BLENDER
 }
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 void SkBlenderBase::addToKey(const skgpu::graphite::KeyContext& keyContext,
                              skgpu::graphite::PaintParamsKeyBuilder* builder,
                              skgpu::graphite::PipelineDataGatherer* gatherer,
-                             bool primitiveColorBlender) const {
+                             skgpu::graphite::DstColorType dstColorType) const {
     using namespace skgpu::graphite;
+    SkASSERT(dstColorType == DstColorType::kSurface || dstColorType == DstColorType::kPrimitive);
 
+    const bool primitiveColorBlender = dstColorType == DstColorType::kPrimitive;
     std::optional<SkBlendMode> bm = as_BB(this)->asBlendMode();
     if (primitiveColorBlender && bm.has_value()) {
         PrimitiveBlendModeBlock::BeginBlock(keyContext, builder, gatherer, bm.value());
@@ -92,7 +97,7 @@ void SkBlendModeBlender::flatten(SkWriteBuffer& buffer) const {
     buffer.writeInt((int)fMode);
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 std::unique_ptr<GrFragmentProcessor> SkBlendModeBlender::asFragmentProcessor(
         std::unique_ptr<GrFragmentProcessor> srcFP,
         std::unique_ptr<GrFragmentProcessor> dstFP,
@@ -100,6 +105,11 @@ std::unique_ptr<GrFragmentProcessor> SkBlendModeBlender::asFragmentProcessor(
     return GrBlendFragmentProcessor::Make(std::move(srcFP), std::move(dstFP), fMode);
 }
 #endif
+
+bool SkBlendModeBlender::appendStages(const SkStageRec& rec) const {
+    SkBlendMode_AppendStages(fMode, rec.fPipeline);
+    return true;
+}
 
 skvm::Color SkBlendModeBlender::onProgram(skvm::Builder* p, skvm::Color src, skvm::Color dst,
                                           const SkColorInfo& colorInfo, skvm::Uniforms* uniforms,

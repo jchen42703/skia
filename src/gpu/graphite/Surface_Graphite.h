@@ -17,12 +17,13 @@ namespace skgpu::graphite {
 class Context;
 class Device;
 class Recorder;
+class TextureProxy;
 
 class Surface final : public SkSurface_Base {
 public:
     static sk_sp<SkSurface> MakeGraphite(Recorder* recorder,
                                          const SkImageInfo& info,
-                                         SkBudgeted budgeted,
+                                         skgpu::Budgeted budgeted,
                                          Mipmapped = Mipmapped::kNo,
                                          const SkSurfaceProps* props = nullptr);
 
@@ -58,7 +59,7 @@ public:
 
     TextureProxyView readSurfaceView() const;
 
-#if GRAPHITE_TEST_UTILS && SK_SUPPORT_GPU
+#if GRAPHITE_TEST_UTILS && defined(SK_GANESH)
     // TODO: The long-term for the public API around surfaces and flushing/submitting will likely
     // be replaced with explicit control over Recorders and submitting Recordings to the Context
     // directly. For now, internal tools often rely on surface/canvas flushing to control what's
@@ -71,6 +72,8 @@ public:
                                   const GrFlushInfo&,
                                   const skgpu::MutableTextureState*) override;
 #endif
+
+    TextureProxy* backingTextureProxy();
 
 private:
     sk_sp<Device> fDevice;

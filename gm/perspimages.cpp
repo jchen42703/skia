@@ -14,12 +14,14 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "tools/Resources.h"
 #include "tools/ToolUtils.h"
 
 #include <initializer_list>
+
+using namespace skia_private;
 
 static sk_sp<SkImage> make_image1() { return GetResourceAsImage("images/mandrill_128.png"); }
 
@@ -126,7 +128,7 @@ protected:
 
 private:
     inline static constexpr int kNumImages = 4;
-    SkTArray<sk_sp<SkImage>> fImages;
+    TArray<sk_sp<SkImage>> fImages;
 
     using INHERITED = GM;
 };

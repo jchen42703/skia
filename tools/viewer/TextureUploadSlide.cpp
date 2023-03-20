@@ -13,6 +13,8 @@
 #include "tools/timer/TimeUtils.h"
 #include "tools/viewer/Slide.h"
 
+using namespace skia_private;
+
 /**
  * This sample exercises heavy texture updates and uploads.
  */
@@ -42,7 +44,7 @@ public:
 
     void draw(SkCanvas* canvas) override {
         canvas->clear(0xFFFFFFFF);
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
         auto direct = GrAsDirectContext(canvas->recordingContext());
         if (direct) {
             // One-time context-specific setup.
@@ -90,8 +92,8 @@ private:
             SkSurfaceProps surfaceProps(0, kRGB_H_SkPixelGeometry);
             SkImageInfo imageInfo = SkImageInfo::Make(size, size, kRGBA_8888_SkColorType,
                                                       kPremul_SkAlphaType);
-            fSurface = SkSurface::MakeRenderTarget(direct, SkBudgeted::kNo, imageInfo, 0,
-                                                   &surfaceProps);
+            fSurface = SkSurface::MakeRenderTarget(
+                    direct, skgpu::Budgeted::kNo, imageInfo, 0, &surfaceProps);
         }
 
         sk_sp<SkImage> getImage() {
@@ -121,7 +123,7 @@ private:
     sk_sp<SkSurface> fBlueSurface;
     sk_sp<SkSurface> fGraySurface;
 
-    SkTArray<sk_sp<RenderTargetTexture>> fTextures;
+    TArray<sk_sp<RenderTargetTexture>> fTextures;
 
     GrDirectContext* fCachedContext = nullptr;
 
@@ -134,7 +136,7 @@ private:
         return surface;
     }
     void initializeTextures(GrDirectContext* direct) {
-        fTextures.reset();
+        fTextures.clear();
         int textureCount = fTileRows * fTileCols;
         for (int i = 0; i < textureCount; i++) {
             fTextures.emplace_back(new RenderTargetTexture(direct, fTileSize));

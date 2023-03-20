@@ -9,8 +9,9 @@
 
 #include "include/core/SkTypes.h"
 
-#if SK_SUPPORT_GPU && defined(SK_BUILD_FOR_ANDROID) && __ANDROID_API__ >= 26
+#if defined(SK_GANESH) && defined(SK_BUILD_FOR_ANDROID) && __ANDROID_API__ >= 26
 
+#include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
@@ -179,8 +180,8 @@ static void basic_draw_test_helper(skiatest::Reporter* reporter,
 
     SkImageInfo imageInfo = SkImageInfo::Make(DEV_W, DEV_H, kRGBA_8888_SkColorType,
                                               kPremul_SkAlphaType);
-    sk_sp<SkSurface> surface = SkSurface::MakeRenderTarget(context, SkBudgeted::kNo,
-                                                           imageInfo);
+    sk_sp<SkSurface> surface =
+            SkSurface::MakeRenderTarget(context, skgpu::Budgeted::kNo, imageInfo);
     REPORTER_ASSERT(reporter, surface);
 
     ///////////////////////////////////////////////////////////////////////////

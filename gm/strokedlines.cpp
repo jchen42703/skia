@@ -25,10 +25,12 @@
 #include "include/core/SkTypes.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "tools/ToolUtils.h"
 
 #include <initializer_list>
+
+using namespace skia_private;
 
 constexpr int kNumColumns = 6;
 constexpr int kNumRows = 8;
@@ -230,8 +232,8 @@ protected:
     }
 
 private:
-    SkTArray<SkPaint> fPaints;
-    SkTArray<SkMatrix> fMatrices;
+    TArray<SkPaint> fPaints;
+    TArray<SkMatrix> fMatrices;
 
     using INHERITED = GM;
 };

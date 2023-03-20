@@ -66,9 +66,11 @@ bool SDFTControl::isDirect(SkScalar approximateDeviceTextSize, const SkPaint& pa
 #if !defined(SK_DISABLE_SDF_TEXT)
 bool SDFTControl::isSDFT(SkScalar approximateDeviceTextSize, const SkPaint& paint,
                          const SkMatrix& matrix) const {
+    const bool wideStroke = paint.getStyle() == SkPaint::kStroke_Style &&
+            paint.getStrokeWidth() > 0;
     return fAbleToUseSDFT &&
            paint.getMaskFilter() == nullptr &&
-           paint.getStyle() == SkPaint::kFill_Style &&
+            (paint.getStyle() == SkPaint::kFill_Style || wideStroke) &&
            0 < approximateDeviceTextSize &&
            (fAbleToUsePerspectiveSDFT || !matrix.hasPerspective()) &&
            (fMinDistanceFieldFontSize <= approximateDeviceTextSize || matrix.hasPerspective()) &&
@@ -88,28 +90,34 @@ SDFTControl::getSDFFont(const SkFont& font, const SkMatrix& viewMatrix,
 
     SkScalar dfMaskScaleFloor;
     SkScalar dfMaskScaleCeil;
+    SkScalar dfMaskSize;
     if (scaledTextSize <= kSmallDFFontLimit) {
         dfMaskScaleFloor = fMinDistanceFieldFontSize;
         dfMaskScaleCeil = kSmallDFFontLimit;
+        dfMaskSize = kSmallDFFontLimit;
     } else if (scaledTextSize <= kMediumDFFontLimit) {
         dfMaskScaleFloor = kSmallDFFontLimit;
         dfMaskScaleCeil = kMediumDFFontLimit;
+        dfMaskSize = kMediumDFFontLimit;
 #ifdef SK_BUILD_FOR_MAC
     } else if (scaledTextSize <= kLargeDFFontLimit) {
         dfMaskScaleFloor = kMediumDFFontLimit;
         dfMaskScaleCeil = kLargeDFFontLimit;
+        dfMaskSize = kLargeDFFontLimit;
     } else {
         dfMaskScaleFloor = kLargeDFFontLimit;
-        dfMaskScaleCeil = kExtraLargeDFFontLimit;
+        dfMaskScaleCeil = fMaxDistanceFieldFontSize;
+        dfMaskSize = kExtraLargeDFFontLimit;
     }
 #else
     } else {
         dfMaskScaleFloor = kMediumDFFontLimit;
-        dfMaskScaleCeil = kLargeDFFontLimit;
+        dfMaskScaleCeil = fMaxDistanceFieldFontSize;
+        dfMaskSize = kLargeDFFontLimit;
     }
 #endif
 
-    dfFont.setSize(SkIntToScalar(dfMaskScaleCeil));
+    dfFont.setSize(dfMaskSize);
     dfFont.setEdging(SkFont::Edging::kAntiAlias);
     dfFont.setForceAutoHinting(false);
     dfFont.setHinting(SkFontHinting::kNormal);
@@ -119,7 +127,7 @@ SDFTControl::getSDFFont(const SkFont& font, const SkMatrix& viewMatrix,
 
     SkScalar minMatrixScale = dfMaskScaleFloor / textSize,
              maxMatrixScale = dfMaskScaleCeil  / textSize;
-    return {dfFont, textSize / dfMaskScaleCeil, {minMatrixScale, maxMatrixScale}};
+    return {dfFont, textSize / dfMaskSize, {minMatrixScale, maxMatrixScale}};
 }
 
 bool SDFTMatrixRange::matrixInRange(const SkMatrix& matrix) const {

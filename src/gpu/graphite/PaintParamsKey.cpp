@@ -213,7 +213,7 @@ void PaintParamsKeyBuilder::makeInvalid() {
 
     fStack.clear();
     fData.clear();
-    this->beginBlock(SkBuiltInCodeSnippetID::kError);
+    this->beginBlock(BuiltInCodeSnippetID::kError);
     this->endBlock();
 
     SkASSERT(fIsValid);
@@ -292,13 +292,13 @@ void PaintParamsKey::toShaderInfo(const ShaderCodeDictionary* dict,
     }
 }
 
-#if GR_TEST_UTILS
+#if GRAPHITE_TEST_UTILS
 bool PaintParamsKey::isErrorKey() const {
     if (this->sizeInBytes() != sizeof(Header)) {
         return false;
     }
     Header header = read_header(this->asSpan(), /*headerOffset=*/0);
-    return header.codeSnippetID == (int32_t)SkBuiltInCodeSnippetID::kError &&
+    return header.codeSnippetID == (int32_t) BuiltInCodeSnippetID::kError &&
            header.blockSize == sizeof(Header);
 }
 #endif

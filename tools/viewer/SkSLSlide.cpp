@@ -18,6 +18,7 @@
 #include "tools/viewer/Viewer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include "imgui.h"
 
@@ -78,8 +79,8 @@ void SkSLSlide::load(SkScalar winWidth, SkScalar winHeight) {
 void SkSLSlide::unload() {
     fEffect.reset();
     fInputs.reset();
-    fChildren.reset();
-    fShaders.reset();
+    fChildren.clear();
+    fShaders.clear();
 }
 
 bool SkSLSlide::rebuild() {
@@ -168,8 +169,8 @@ void SkSLSlide::draw(SkCanvas* canvas) {
         fMousePos.z = mousePos.x;
         fMousePos.w = mousePos.y;
     }
-    fMousePos.z = abs(fMousePos.z) * (ImGui::IsMouseDown(0)    ? 1 : -1);
-    fMousePos.w = abs(fMousePos.w) * (ImGui::IsMouseClicked(0) ? 1 : -1);
+    fMousePos.z = std::abs(fMousePos.z) * (ImGui::IsMouseDown(0)    ? 1 : -1);
+    fMousePos.w = std::abs(fMousePos.w) * (ImGui::IsMouseClicked(0) ? 1 : -1);
 
     for (const SkRuntimeEffect::Uniform& v : fEffect->uniforms()) {
         char* data = fInputs.get() + v.offset;

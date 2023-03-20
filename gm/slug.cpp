@@ -21,11 +21,11 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/private/chromium/Slug.h"
 #include "tools/ToolUtils.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/gpu/GrContextOptions.h"
 
 class SlugGM : public skiagm::GM {

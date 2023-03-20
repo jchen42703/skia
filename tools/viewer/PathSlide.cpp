@@ -13,13 +13,14 @@
 #include "include/core/SkGraphics.h"
 #include "include/core/SkPathBuilder.h"
 #include "include/core/SkPathEffect.h"
+#include "include/core/SkPathUtils.h"
 #include "include/core/SkRegion.h"
 #include "include/core/SkShader.h"
 #include "include/core/SkTime.h"
 #include "include/core/SkTypeface.h"
 #include "include/effects/SkGradientShader.h"
 #include "include/utils/SkParsePath.h"
-#include "src/utils/SkUTF.h"
+#include "src/base/SkUTF.h"
 #include "tools/timer/TimeUtils.h"
 #include "tools/viewer/ClickHandlerSlide.h"
 
@@ -131,9 +132,9 @@ public:
         paint.setStrokeWidth(fStroke);
 
         if (fShowHairline) {
-            SkPath  fill;
+            SkPath fill;
 
-            paint.getFillPath(path, &fill);
+            skpathutils::FillPathWithPaint(path, paint, &fill);
             paint.setStrokeWidth(0);
             canvas->drawPath(fill, paint);
         } else {
@@ -193,7 +194,7 @@ DEF_SLIDE( return new PathSlide; )
 //////////////////////////////////////////////////////////////////////////////
 
 #include "include/effects/SkCornerPathEffect.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 
 class ArcToSlide : public ClickHandlerSlide {
     bool fDoFrame, fDoCorner, fDoConic;
@@ -363,7 +364,7 @@ public:
         }
         if (fShowHidden) {
             SkPath hidden;
-            fStrokePaint.getFillPath(path, &hidden);
+            skpathutils::FillPathWithPaint(path, fStrokePaint, &hidden);
             canvas->drawPath(hidden, fHiddenPaint);
         }
         if (fShowSkeleton) {

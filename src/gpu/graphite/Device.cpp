@@ -8,6 +8,7 @@
 #include "src/gpu/graphite/Device.h"
 
 #include "include/gpu/graphite/Recorder.h"
+#include "include/gpu/graphite/Recording.h"
 #include "src/gpu/AtlasTypes.h"
 #include "src/gpu/graphite/Buffer.h"
 #include "src/gpu/graphite/Caps.h"
@@ -22,6 +23,7 @@
 #include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/RecorderPriv.h"
 #include "src/gpu/graphite/Renderer.h"
+#include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/SharedContext.h"
 #include "src/gpu/graphite/TextureProxy.h"
 #include "src/gpu/graphite/TextureUtils.h"
@@ -36,11 +38,11 @@
 #include "include/core/SkPath.h"
 #include "include/core/SkPathEffect.h"
 #include "include/core/SkStrokeRec.h"
-#include "include/private/SkImageInfoPriv.h"
 
 #include "src/core/SkBlenderBase.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkConvertPixels.h"
+#include "src/core/SkImageInfoPriv.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkPaintPriv.h"
 #include "src/core/SkRRectPriv.h"
@@ -53,9 +55,6 @@
 
 #include <unordered_map>
 #include <vector>
-
-// TODO: This will be removed once the AnalyticRectRenderStep is finished being developed.
-#define ENABLE_ANALYTIC_RRECT_RENDERER 0
 
 using RescaleGamma       = SkImage::RescaleGamma;
 using RescaleMode        = SkImage::RescaleMode;
@@ -103,16 +102,20 @@ bool paint_depends_on_dst(const SkPaint& paint) {
 }
 
 /** If the paint can be reduced to a solid flood-fill, determine the correct color to fill with. */
-std::optional<SkColor4f> extract_paint_color(const SkPaint& paint) {
+std::optional<SkColor4f> extract_paint_color(const SkPaint& paint,
+                                             const SkColorInfo& dstColorInfo) {
     SkASSERT(!paint_depends_on_dst(paint));
     if (paint.getShader()) {
         return std::nullopt;
     }
+
+    SkColor4f dstPaintColor = PaintParams::Color4fPrepForDst(paint.getColor4f(), dstColorInfo);
+
     if (SkColorFilter* filter = paint.getColorFilter()) {
-        // TODO: SkColorSpace support
-        return filter->filterColor4f(paint.getColor4f(), sk_srgb_singleton(), sk_srgb_singleton());
+        SkColorSpace* dstCS = dstColorInfo.colorSpace();
+        return filter->filterColor4f(dstPaintColor, dstCS, dstCS);
     }
-    return paint.getColor4f();
+    return dstPaintColor;
 }
 
 SkIRect rect_to_pixelbounds(const Rect& r) {
@@ -145,6 +148,15 @@ bool create_img_shader_paint(sk_sp<SkImage> image,
     paint->setShader(std::move(imgShader));
     paint->setPathEffect(nullptr);  // neither drawSpecial nor drawImageRect support path effects
     return true;
+}
+
+bool is_simple_shape(const Shape& shape, SkStrokeRec::Style type) {
+    // We send regular filled and hairline [round] rectangles and quadrilaterals, and stroked
+    // [r]rects with circular corners to a single Renderer that does not trigger MSAA.
+    return !shape.inverted() && type != SkStrokeRec::kStrokeAndFill_Style &&
+            (shape.isRect() /* || shape.isQuadrilateral()*/ ||
+             (shape.isRRect() && (type != SkStrokeRec::kStroke_Style ||
+                                  SkRRectPriv::AllCornersCircular(shape.rrect()))));
 }
 
 } // anonymous namespace
@@ -201,7 +213,7 @@ private:
 
 sk_sp<Device> Device::Make(Recorder* recorder,
                            const SkImageInfo& ii,
-                           SkBudgeted budgeted,
+                           skgpu::Budgeted budgeted,
                            Mipmapped mipmapped,
                            const SkSurfaceProps& props,
                            bool addInitialClear) {
@@ -315,8 +327,13 @@ SkBaseDevice* Device::onCreateDevice(const CreateInfo& info, const SkPaint*) {
     // Skia's convention is to only clear a device if it is non-opaque.
     bool addInitialClear = !info.fInfo.isOpaque();
 
-    return Make(fRecorder, info.fInfo, SkBudgeted::kYes, Mipmapped::kNo,
-                props, addInitialClear).release();
+    return Make(fRecorder,
+                info.fInfo,
+                skgpu::Budgeted::kYes,
+                Mipmapped::kNo,
+                props,
+                addInitialClear)
+            .release();
 }
 
 sk_sp<SkSurface> Device::makeSurface(const SkImageInfo& ii, const SkSurfaceProps& props) {
@@ -332,15 +349,28 @@ TextureProxyView Device::createCopy(const SkIRect* subset, Mipmapped mipmapped) 
     }
 
     SkIRect srcRect = subset ? *subset : SkIRect::MakeSize(this->imageInfo().dimensions());
-    SkASSERT(SkIRect::MakeSize(this->imageInfo().dimensions()).contains(srcRect));
+    return TextureProxyView::Copy(this->recorder(),
+                                  this->imageInfo().colorInfo(),
+                                  srcView,
+                                  srcRect,
+                                  mipmapped);
+}
 
-    sk_sp<TextureProxy> dest = TextureProxy::Make(this->recorder()->priv().caps(),
+TextureProxyView TextureProxyView::Copy(Recorder* recorder,
+                                        const SkColorInfo& srcColorInfo,
+                                        const TextureProxyView& srcView,
+                                        SkIRect srcRect,
+                                        Mipmapped mipmapped) {
+    SkASSERT(srcView.proxy()->isFullyLazy() ||
+             SkIRect::MakeSize(srcView.proxy()->dimensions()).contains(srcRect));
+
+    sk_sp<TextureProxy> dest = TextureProxy::Make(recorder->priv().caps(),
                                                   srcRect.size(),
-                                                  this->imageInfo().colorType(),
+                                                  srcColorInfo.colorType(),
                                                   mipmapped,
                                                   srcView.proxy()->textureInfo().isProtected(),
                                                   Renderable::kNo,
-                                                  SkBudgeted::kNo);
+                                                  skgpu::Budgeted::kNo);
     if (!dest) {
         return {};
     }
@@ -353,7 +383,7 @@ TextureProxyView Device::createCopy(const SkIRect* subset, Mipmapped mipmapped) 
         return {};
     }
 
-    this->recorder()->priv().add(std::move(copyTask));
+    recorder->priv().add(std::move(copyTask));
 
     return { std::move(dest), srcView.swizzle() };
 }
@@ -362,8 +392,19 @@ bool Device::onReadPixels(const SkPixmap& pm, int srcX, int srcY) {
 #if GRAPHITE_TEST_UTILS
     if (Context* context = fRecorder->priv().context()) {
         this->flushPendingWorkToRecorder();
-        return context->priv().readPixels(fRecorder, pm, fDC->target(), this->imageInfo(),
-                                          srcX, srcY);
+        // Add all previous commands generated to the command buffer.
+        // If the client snaps later they'll only get post-read commands in their Recording,
+        // but since they're doing a readPixels in the middle that shouldn't be unexpected.
+        std::unique_ptr<Recording> recording = fRecorder->snap();
+        if (!recording) {
+            return false;
+        }
+        InsertRecordingInfo info;
+        info.fRecording = recording.get();
+        if (!context->insertRecording(info)) {
+            return false;
+        }
+        return context->priv().readPixels(pm, fDC->target(), this->imageInfo(), srcX, srcY);
     }
 #endif
     // We have no access to a context to do a read pixels here.
@@ -404,29 +445,35 @@ bool Device::onWritePixels(const SkPixmap& src, int x, int y) {
         return false;
     }
 
-    // TODO: check for readOnly or framebufferOnly target and return false if so
+    // If one alpha type is unknown and the other isn't, it's too underspecified.
+    if ((src.alphaType() == kUnknown_SkAlphaType) !=
+        (this->imageInfo().alphaType() == kUnknown_SkAlphaType)) {
+        return false;
+    }
 
-    const Caps* caps = fRecorder->priv().caps();
+    // TODO: check for readOnly or framebufferOnly target and return false if so
 
     // TODO: canvas2DFastPath?
     // TODO: check that surface supports writePixels
     // TODO: handle writePixels as draw if needed (e.g., canvas2DFastPath || !supportsWritePixels)
 
-    // TODO: check for flips and conversions and either handle here or pass info to UploadTask
+    // TODO: check for flips and either handle here or pass info to UploadTask
 
-    // for now, until conversions are supported
-    if (!caps->areColorTypeAndTextureInfoCompatible(src.colorType(),
-                                                    target->textureInfo())) {
+    // Determine rect to copy
+    SkIRect dstRect = SkIRect::MakePtSize({x, y}, src.dimensions());
+    if (!target->isFullyLazy() && !dstRect.intersect(SkIRect::MakeSize(target->dimensions()))) {
         return false;
     }
 
+    // Set up copy location
+    const void* addr = src.addr(dstRect.fLeft - x, dstRect.fTop - y);
     std::vector<MipLevel> levels;
-    levels.push_back({src.addr(), src.rowBytes()});
-
-    SkIRect dstRect = SkIRect::MakePtSize({x, y}, src.dimensions());
+    levels.push_back({addr, src.rowBytes()});
 
     this->flushPendingWorkToRecorder();
-    return fDC->recordUpload(fRecorder, sk_ref_sp(target), src.colorType(), levels, dstRect);
+
+    return fDC->recordUpload(fRecorder, sk_ref_sp(target), src.info().colorInfo(),
+                             this->imageInfo().colorInfo(), levels, dstRect, nullptr);
 }
 
 
@@ -545,9 +592,12 @@ void Device::onReplaceClip(const SkIRect& rect) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void Device::drawPaint(const SkPaint& paint) {
-    if (this->clipIsWideOpen()) {
+    // We never want to do a fullscreen clear on a fully-lazy render target, because the device size
+    // may be smaller than the final surface we draw to, in which case we don't want to fill the
+    // entire final surface.
+    if (this->clipIsWideOpen() && !fDC->target()->isFullyLazy()) {
         if (!paint_depends_on_dst(paint)) {
-            if (std::optional<SkColor4f> color = extract_paint_color(paint)) {
+            if (std::optional<SkColor4f> color = extract_paint_color(paint, fDC->colorInfo())) {
                 // do fullscreen clear
                 fDC->clear(*color);
                 return;
@@ -637,6 +687,28 @@ void Device::drawPoints(SkCanvas::PointMode mode, size_t count,
                                paint, stroke);
         }
     }
+}
+
+void Device::drawEdgeAAQuad(const SkRect& rect,
+                            const SkPoint clip[4],
+                            SkCanvas::QuadAAFlags aaFlags,
+                            const SkColor4f& color,
+                            SkBlendMode mode) {
+    SkPaint solidColorPaint;
+    solidColorPaint.setColor4f(color, /*colorSpace=*/nullptr);
+    solidColorPaint.setBlendMode(mode);
+
+    auto flags = SkEnumBitMask<EdgeAAQuad::Flags>(static_cast<EdgeAAQuad::Flags>(aaFlags));
+    EdgeAAQuad quad = clip ? EdgeAAQuad(clip, flags) : EdgeAAQuad(rect, flags);
+    this->drawGeometry(this->localToDeviceTransform(), Geometry(quad), solidColorPaint, kFillStyle,
+                       DrawFlags::kIgnoreMaskFilter | DrawFlags::kIgnorePathEffect);
+}
+
+void Device::drawEdgeAAImageSet(const SkCanvas::ImageSetEntry[], int count,
+                                const SkPoint dstClips[], const SkMatrix preViewMatrices[],
+                                const SkSamplingOptions&, const SkPaint&,
+                                SkCanvas::SrcRectConstraint) {
+    // TODO: Implement this by merging the logic of drawImageRect and drawEdgeAAQuad.
 }
 
 void Device::drawImageRect(const SkImage* image, const SkRect* src, const SkRect& dst,
@@ -795,11 +867,8 @@ void Device::drawGeometry(const Transform& localToDevice,
 
     // TODO: The tessellating path renderers haven't implemented perspective yet, so transform to
     // device space so we draw something approximately correct (barring local coord issues).
-    if (geometry.isShape() && localToDevice.type() == Transform::Type::kProjection
-#if ENABLE_ANALYTIC_RRECT_RENDERER
-        && (geometry.shape().isPath() || !style.isFillStyle())
-#endif
-    ) {
+    if (geometry.isShape() && localToDevice.type() == Transform::Type::kProjection &&
+        !is_simple_shape(geometry.shape(), style.getStyle())) {
         SkPath devicePath = geometry.shape().asPath();
         devicePath.transform(localToDevice.matrix().asM33());
         this->drawGeometry(Transform::Identity(), Geometry(Shape(devicePath)), paint, style, flags,
@@ -973,25 +1042,19 @@ const Renderer* Device::chooseRenderer(const Geometry& geometry,
     } else if (geometry.isVertices()) {
         SkVerticesPriv info(geometry.vertices()->priv());
         return renderers->vertices(info.mode(), info.hasColors(), info.hasTexCoords());
+    } else if (geometry.isEdgeAAQuad()) {
+        SkASSERT(!requireMSAA && style.isFillStyle());
+        return renderers->analyticRRect(); // handled by the same system as rects and round rects
     } else if (!geometry.isShape()) {
         // We must account for new Geometry types with specific Renderers
         return nullptr;
     }
 
     const Shape& shape = geometry.shape();
-#if ENABLE_ANALYTIC_RRECT_RENDERER
-    // We send regular filled [round] rectangles and quadrilaterals, and stroked [r]rects with
-    // circular corners to a single Renderer that does not trigger MSAA. We can't use this renderer
-    // if we require MSAA for an effect (i.e. clipping or stroke-and-fill).
-    const bool simpleShape =
-            !requireMSAA && !shape.inverted() && type != SkStrokeRec::kStrokeAndFill_Style &&
-            (shape.isRect() || shape.isRRect() /* || shape.isQuadrilateral()*/) &&
-            (!shape.isRRect() || type == SkStrokeRec::kFill_Style ||
-                    SkRRectPriv::AllCornersCircular(shape.rrect()));
-    if (simpleShape) {
+    // We can't use this renderer if we require MSAA for an effect (i.e. clipping or stroke+fill).
+    if (!requireMSAA && is_simple_shape(shape, type)) {
         return renderers->analyticRRect();
     }
-#endif
 
     // If we got here, it requires tessellated path rendering or an MSAA technique applied to a
     // simple shape (so we interpret them as paths to reduce the number of pipelines we need).
@@ -1041,7 +1104,7 @@ void Device::flushPendingWorkToRecorder() {
 
     // push any pending uploads from the atlasmanager
     auto atlasManager = fRecorder->priv().atlasManager();
-    if (!atlasManager->recordUploads(fDC.get())) {
+    if (!fDC->recordTextUploads(atlasManager)) {
         SKGPU_LOG_E("AtlasManager uploads have failed -- may see invalid results.");
     }
 
@@ -1130,11 +1193,15 @@ sk_sp<SkSpecialImage> Device::snapSpecial(const SkIRect& subset, bool forceCopy)
     this->flushPendingWorkToRecorder();
 
     SkIRect finalSubset = subset;
-    TextureProxyView view = fDC->readSurfaceView(fRecorder->priv().caps());
-    if (forceCopy || !view) {
-        // TODO: fill this in. 'forceCopy' is only true for backdrop saveLayers. A non-readable
-        // surface view could happen any time though.
-        return nullptr;
+    TextureProxyView view = this->readSurfaceView();
+    if (forceCopy || !view || view.proxy()->isFullyLazy()) {
+        // TODO: this doesn't address the non-readable surface view case, in which view is empty and
+        // createCopy will return an empty view as well.
+        view = this->createCopy(&subset, Mipmapped::kNo);
+        if (!view) {
+            return nullptr;
+        }
+        finalSubset = SkIRect::MakeWH(view.width(), view.height());
     }
 
     return SkSpecialImage::MakeGraphite(fRecorder,
@@ -1145,11 +1212,7 @@ sk_sp<SkSpecialImage> Device::snapSpecial(const SkIRect& subset, bool forceCopy)
                                         this->surfaceProps());
 }
 
-#if GRAPHITE_TEST_UTILS
-TextureProxy* Device::proxy() {
-    return fDC->target();
-}
-#endif
+TextureProxy* Device::target() { return fDC->target(); }
 
 TextureProxyView Device::readSurfaceView() const {
     if (!fRecorder) {

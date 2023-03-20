@@ -10,8 +10,8 @@
 
 #include "include/core/SkSpan.h"
 #include "include/core/SkSurface.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTHash.h"
+#include "include/private/base/SkTArray.h"
+#include "src/core/SkTHash.h"
 #include "src/gpu/ganesh/GrBufferAllocPool.h"
 #include "src/gpu/ganesh/GrDeferredUpload.h"
 #include "src/gpu/ganesh/GrHashMapWithCache.h"
@@ -178,6 +178,13 @@ public:
                        sk_sp<GrRenderTargetProxy> newDest,
                        SkIPoint offset);
 
+    // This is public so it can be called by an SkImage factory (in sk_image_factory namespace).
+    // It is not meant to be directly called in other situations.
+    bool flush(SkSpan<GrSurfaceProxy*> proxies,
+               SkSurface::BackendSurfaceAccess access,
+               const GrFlushInfo&,
+               const skgpu::MutableTextureState* newState);
+
 private:
     GrDrawingManager(GrRecordingContext*,
                      const PathRendererChain::Options&,
@@ -204,20 +211,13 @@ private:
     GrRenderTask* appendTask(sk_sp<GrRenderTask>);
     GrRenderTask* insertTaskBeforeLast(sk_sp<GrRenderTask>);
 
-    bool flush(SkSpan<GrSurfaceProxy*> proxies,
-               SkSurface::BackendSurfaceAccess access,
-               const GrFlushInfo&,
-               const skgpu::MutableTextureState* newState);
-
     bool submitToGpu(bool syncToCpu);
 
     SkDEBUGCODE(void validate() const);
 
     friend class GrDirectContext; // access to: flush & cleanup
-    friend class GrDirectContextPriv; // access to: flush
     friend class GrOnFlushResourceProvider; // this is just a shallow wrapper around this class
     friend class GrRecordingContext;  // access to: ctor
-    friend class SkImage; // for access to: flush
 
     static const int kNumPixelGeometries = 5; // The different pixel geometries
     static const int kNumDFTOptions = 2;      // DFT or no DFT

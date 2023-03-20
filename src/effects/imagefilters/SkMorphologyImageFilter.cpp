@@ -23,6 +23,7 @@
 #include "include/effects/SkImageFilters.h"
 #include "include/private/SkColorData.h"
 #include "include/private/SkSLSampleUsage.h"
+#include "include/private/base/SkTo.h"
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkSpecialImage.h"
@@ -33,12 +34,14 @@
 #include <memory>
 #include <utility>
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrRecordingContext.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrColorInfo.h"
 #include "src/gpu/ganesh/GrFragmentProcessor.h"
 #include "src/gpu/ganesh/GrImageInfo.h"
@@ -56,11 +59,15 @@ struct GrShaderCaps;
 #endif
 
 #if GR_TEST_UTILS
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #endif
 
 #if SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_SSE2
     #include <emmintrin.h>
+#endif
+
+#if defined(SK_ARM_HAS_NEON)
+    #include <arm_neon.h>
 #endif
 
 namespace {
@@ -198,7 +205,7 @@ SkIRect SkMorphologyImageFilter::onFilterNodeBounds(
     return src.makeOutset(SkScalarCeilToInt(radius.width()), SkScalarCeilToInt(radius.height()));
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 
 ///////////////////////////////////////////////////////////////////////////////
 /**
@@ -686,7 +693,7 @@ sk_sp<SkSpecialImage> SkMorphologyImageFilter::onFilterImage(const Context& ctx,
         return input->makeSubset(srcBounds);
     }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     if (ctx.gpuBacked()) {
         auto context = ctx.getContext();
 

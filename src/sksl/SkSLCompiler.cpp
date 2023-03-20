@@ -11,6 +11,7 @@
 #include "include/private/SkSLIRNode.h"
 #include "include/private/SkSLProgramKind.h"
 #include "include/private/SkSLSymbol.h"
+#include "include/private/base/SkDebug.h"
 #include "include/sksl/DSLCore.h"
 #include "include/sksl/DSLModifiers.h"
 #include "include/sksl/DSLType.h"
@@ -25,8 +26,6 @@
 #include "src/sksl/SkSLStringStream.h"
 #include "src/sksl/analysis/SkSLProgramUsage.h"
 #include "src/sksl/ir/SkSLExpression.h"
-#include "src/sksl/ir/SkSLExternalFunction.h"
-#include "src/sksl/ir/SkSLExternalFunctionReference.h"
 #include "src/sksl/ir/SkSLField.h"
 #include "src/sksl/ir/SkSLFieldAccess.h"
 #include "src/sksl/ir/SkSLFunctionDeclaration.h"
@@ -47,7 +46,7 @@
 #include <fstream>
 #endif
 
-#if defined(SKSL_STANDALONE) || SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED)
+#if defined(SKSL_STANDALONE) || defined(SK_GANESH) || defined(SK_GRAPHITE)
 #include "src/sksl/codegen/SkSLGLSLCodeGenerator.h"
 #include "src/sksl/codegen/SkSLMetalCodeGenerator.h"
 #include "src/sksl/codegen/SkSLSPIRVCodeGenerator.h"
@@ -148,20 +147,19 @@ Compiler::~Compiler() {}
 const Module* Compiler::moduleForProgramKind(ProgramKind kind) {
     auto m = ModuleLoader::Get();
     switch (kind) {
-        case ProgramKind::kVertex:                return m.loadVertexModule(this);           break;
-        case ProgramKind::kFragment:              return m.loadFragmentModule(this);         break;
-        case ProgramKind::kCompute:               return m.loadComputeModule(this);          break;
-        case ProgramKind::kGraphiteVertex:        return m.loadGraphiteVertexModule(this);   break;
-        case ProgramKind::kGraphiteFragment:      return m.loadGraphiteFragmentModule(this); break;
-        case ProgramKind::kPrivateRuntimeShader:  return m.loadPrivateRTShaderModule(this);  break;
+        case ProgramKind::kVertex:                return m.loadVertexModule(this);
+        case ProgramKind::kFragment:              return m.loadFragmentModule(this);
+        case ProgramKind::kCompute:               return m.loadComputeModule(this);
+        case ProgramKind::kGraphiteVertex:        return m.loadGraphiteVertexModule(this);
+        case ProgramKind::kGraphiteFragment:      return m.loadGraphiteFragmentModule(this);
+        case ProgramKind::kPrivateRuntimeShader:  return m.loadPrivateRTShaderModule(this);
         case ProgramKind::kRuntimeColorFilter:
         case ProgramKind::kRuntimeShader:
         case ProgramKind::kRuntimeBlender:
         case ProgramKind::kPrivateRuntimeColorFilter:
         case ProgramKind::kPrivateRuntimeBlender:
         case ProgramKind::kMeshVertex:
-        case ProgramKind::kMeshFragment:
-        case ProgramKind::kGeneric:               return m.loadPublicModule(this);           break;
+        case ProgramKind::kMeshFragment:          return m.loadPublicModule(this);
     }
     SkUNREACHABLE;
 }
@@ -196,15 +194,6 @@ void Compiler::FinalizeSettings(ProgramSettings* settings, ProgramKind kind) {
     settings->fInlineThreshold *= (int)settings->fOptimize;
     settings->fRemoveDeadFunctions &= settings->fOptimize;
     settings->fRemoveDeadVariables &= settings->fOptimize;
-
-    if (kind == ProgramKind::kGeneric) {
-        // For "generic" interpreter programs, leave all functions intact. (The SkVM API supports
-        // calling any function, not just 'main').
-        settings->fRemoveDeadFunctions = false;
-    } else {
-        // Only generic programs (limited to CPU) are able to use external functions.
-        SkASSERT(!settings->fExternalFunctions);
-    }
 
     // Runtime effects always allow narrowing conversions.
     if (ProgramConfig::IsRuntimeEffect(kind)) {
@@ -285,10 +274,6 @@ std::unique_ptr<Expression> Compiler::convertIdentifier(Position pos, std::strin
             dsl::DSLModifiers modifiers;
             dsl::DSLType dslType(result->name(), &modifiers, pos);
             return TypeReference::Convert(*fContext, pos, &dslType.skslType());
-        }
-        case Symbol::Kind::kExternal: {
-            const ExternalFunction* r = &result->as<ExternalFunction>();
-            return std::make_unique<ExternalFunctionReference>(pos, r);
         }
         default:
             SK_ABORT("unsupported symbol type %d\n", (int) result->kind());
@@ -467,7 +452,7 @@ bool Compiler::finalize(Program& program) {
     return this->errorCount() == 0;
 }
 
-#if defined(SKSL_STANDALONE) || SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED)
+#if defined(SKSL_STANDALONE) || defined(SK_GANESH) || defined(SK_GRAPHITE)
 
 #if defined(SK_ENABLE_SPIRV_VALIDATION)
 static bool validate_spirv(ErrorReporter& reporter, std::string_view program) {
@@ -637,7 +622,7 @@ bool Compiler::toWGSL(Program& program, OutputStream& out) {
     return result;
 }
 
-#endif // defined(SKSL_STANDALONE) || SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED)
+#endif // defined(SKSL_STANDALONE) || defined(SK_GANESH) || defined(SK_GRAPHITE)
 
 void Compiler::handleError(std::string_view msg, Position pos) {
     fErrorText += "error: ";

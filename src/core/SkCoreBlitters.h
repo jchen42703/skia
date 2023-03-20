@@ -11,6 +11,7 @@
 #include "include/core/SkPaint.h"
 #include "src/core/SkBlitRow.h"
 #include "src/core/SkBlitter.h"
+#include "src/core/SkBlitter_A8.h"
 #include "src/core/SkXfermodePriv.h"
 #include "src/shaders/SkBitmapProcShader.h"
 #include "src/shaders/SkShaderBase.h"
@@ -53,22 +54,6 @@ private:
 };
 
 ///////////////////////////////////////////////////////////////////////////////
-
-class SkA8_Coverage_Blitter : public SkRasterBlitter {
-public:
-    SkA8_Coverage_Blitter(const SkPixmap& device, const SkPaint& paint);
-    void blitH(int x, int y, int width) override;
-    void blitAntiH(int x, int y, const SkAlpha antialias[], const int16_t runs[]) override;
-    void blitV(int x, int y, int height, SkAlpha alpha) override;
-    void blitRect(int x, int y, int width, int height) override;
-    void blitMask(const SkMask&, const SkIRect&) override;
-    const SkPixmap* justAnOpaqueColor(uint32_t*) override;
-
-private:
-    using INHERITED = SkRasterBlitter;
-};
-
-////////////////////////////////////////////////////////////////
 
 class SkARGB32_Blitter : public SkRasterBlitter {
 public:
@@ -145,9 +130,12 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-SkBlitter* SkCreateRasterPipelineBlitter(const SkPixmap&, const SkPaint&,
-                                         const SkMatrixProvider& matrixProvider, SkArenaAlloc*,
-                                         sk_sp<SkShader> clipShader, const SkSurfaceProps& props);
+SkBlitter* SkCreateRasterPipelineBlitter(const SkPixmap&,
+                                         const SkPaint&,
+                                         const SkMatrix& ctm,
+                                         SkArenaAlloc*,
+                                         sk_sp<SkShader> clipShader,
+                                         const SkSurfaceProps& props);
 // Use this if you've pre-baked a shader pipeline, including modulating with paint alpha.
 SkBlitter* SkCreateRasterPipelineBlitter(const SkPixmap&, const SkPaint&,
                                          const SkRasterPipeline& shaderPipeline,

@@ -7,9 +7,11 @@
 
 #include "src/gpu/graphite/UniformManager.h"
 
+#include "include/core/SkM44.h"
 #include "include/core/SkMatrix.h"
-#include "include/private/SkHalf.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkAlign.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/base/SkHalf.h"
 #include "src/gpu/graphite/DrawTypes.h"
 #include "src/gpu/graphite/PipelineData.h"
 #include "src/gpu/graphite/Uniform.h"
@@ -591,7 +593,7 @@ void UniformManager::write(const SkRect& rect) {
     this->write(kType, &rect);
 }
 
-void UniformManager::write(SkPoint point) {
+void UniformManager::write(const SkPoint& point) {
     static constexpr SkSLType kType = SkSLType::kFloat2;
     this->write(kType, &point);
 }
@@ -606,12 +608,12 @@ void UniformManager::write(int i) {
     this->write(kType, &i);
 }
 
-void UniformManager::write(skvx::float2 v) {
+void UniformManager::write(const SkV2& v) {
     static constexpr SkSLType kType = SkSLType::kFloat2;
     this->write(kType, &v);
 }
 
-void UniformManager::write(skvx::float4 v) {
+void UniformManager::write(const SkV4& v) {
     static constexpr SkSLType kType = SkSLType::kFloat4;
     this->write(kType, &v);
 }
@@ -628,6 +630,16 @@ void UniformManager::writeArray(SkSpan<const SkPMColor4f> arr) {
 
 void UniformManager::writeArray(SkSpan<const float> arr) {
     static constexpr SkSLType kType = SkSLType::kFloat;
+    this->writeArray(kType, arr.data(), arr.size());
+}
+
+void UniformManager::writeHalf(const SkMatrix& mat) {
+    static constexpr SkSLType kType = SkSLType::kHalf3x3;
+    this->write(kType, &mat);
+}
+
+void UniformManager::writeHalfArray(SkSpan<const float> arr) {
+    static constexpr SkSLType kType = SkSLType::kHalf;
     this->writeArray(kType, arr.data(), arr.size());
 }
 

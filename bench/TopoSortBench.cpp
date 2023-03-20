@@ -7,10 +7,12 @@
 
 #include "bench/Benchmark.h"
 #include "include/core/SkString.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/gpu/ganesh/GrTTopoSort.h"
 
 #include "tools/ToolUtils.h"
+
+using namespace skia_private;
 
 class TopoSortBench : public Benchmark {
 public:
@@ -66,7 +68,7 @@ private:
     static const int kNumElements = 1000;
     static const int kMaxEdges = 5;
 
-    SkTArray<sk_sp<ToolUtils::TopoTestNode>> fGraph;
+    TArray<sk_sp<ToolUtils::TopoTestNode>> fGraph;
     SkRandom fRand;
 
     using INHERITED = Benchmark;

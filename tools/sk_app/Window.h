@@ -10,7 +10,7 @@
 
 #include "include/core/SkRect.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "tools/sk_app/DisplayParams.h"
 #include "tools/skui/InputState.h"
 #include "tools/skui/Key.h"
@@ -64,7 +64,7 @@ public:
 #endif
 #ifdef SK_DAWN
         kDawn_BackendType,
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
         kGraphiteDawn_BackendType,
 #endif
 #endif
@@ -73,7 +73,7 @@ public:
 #endif
 #ifdef SK_METAL
         kMetal_BackendType,
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
         kGraphiteMetal_BackendType,
 #endif
 #endif

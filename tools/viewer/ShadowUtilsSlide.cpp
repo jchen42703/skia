@@ -12,16 +12,18 @@
 #include "include/pathops/SkPathOps.h"
 #include "include/utils/SkCamera.h"
 #include "include/utils/SkShadowUtils.h"
+#include "src/base/SkUTF.h"
 #include "src/core/SkBlurMask.h"
-#include "src/utils/SkUTF.h"
 #include "tools/ToolUtils.h"
 #include "tools/viewer/Slide.h"
+
+using namespace skia_private;
 
 ////////////////////////////////////////////////////////////////////////////
 
 class ShadowUtilsSlide : public Slide {
-    SkTArray<SkPath> fConvexPaths;
-    SkTArray<SkPath> fConcavePaths;
+    TArray<SkPath> fConvexPaths;
+    TArray<SkPath> fConcavePaths;
     SkScalar         fZDelta;
 
     bool      fShowAmbient;

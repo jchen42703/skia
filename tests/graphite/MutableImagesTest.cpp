@@ -7,7 +7,7 @@
 
 #include "tests/Test.h"
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 
 #include "include/core/SkImage.h"
 #include "include/gpu/GpuTypes.h"
@@ -25,6 +25,7 @@
 #include "tools/ToolUtils.h"
 
 using namespace skgpu::graphite;
+using Mipmapped = skgpu::Mipmapped;
 
 namespace {
 
@@ -213,7 +214,7 @@ public:
                                                               fWithMips ? Mipmapped::kYes
                                                                         : Mipmapped::kNo,
                                                               skgpu::Protected::kNo,
-                                                              Renderable::kNo);
+                                                              skgpu::Renderable::kNo);
         REPORTER_ASSERT(fReporter, info.isValid());
 
         fBETexture = fRecorder->createBackendTexture(kImageSize, info);
@@ -298,7 +299,7 @@ public:
                                                               fWithMips ? Mipmapped::kYes
                                                                         : Mipmapped::kNo,
                                                               skgpu::Protected::kNo,
-                                                              Renderable::kNo);
+                                                              skgpu::Renderable::kNo);
         REPORTER_ASSERT(fReporter, info.isValid());
 
         fBETextures[0] = fRecorder->createBackendTexture(kImageSize, info);
@@ -519,4 +520,4 @@ DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(MutableImagesTest, reporter, context) {
     }
 }
 
-#endif // SK_GRAPHITE_ENABLED
+#endif // SK_GRAPHITE

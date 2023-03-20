@@ -9,8 +9,8 @@
 #include "include/core/SkPathTypes.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkTypes.h"
+#include "src/base/SkTSort.h"
 #include "src/core/SkPathPriv.h"
-#include "src/core/SkTSort.h"
 #include "src/pathops/SkPathOpsBounds.h"
 #include "src/pathops/SkPathOpsConic.h"
 #include "src/pathops/SkPathOpsCubic.h"
@@ -42,7 +42,7 @@ static double calc_t_div(const SkDCubic& cubic, double precision, double start) 
     double dy = c[3].fY - 3 * (c[2].fY - c[1].fY) - c[0].fY;
     double dist = sqrt(dx * dx + dy * dy);
     double tDiv3 = precision / (adjust * dist);
-    double t = SkDCubeRoot(tDiv3);
+    double t = std::cbrt(tDiv3);
     if (start > 0) {
         t = start + (1 - start) * t;
     }
@@ -189,7 +189,7 @@ void CubicPathToQuads(const SkPath& cubicPath, SkPath* quadPath) {
                 quadPath->quadTo(pts[1].fX, pts[1].fY, pts[2].fX, pts[2].fY);
                 break;
             case SkPathVerb::kCubic:
-                quads.reset();
+                quads.clear();
                 cubic.set(pts);
                 CubicToQuads(cubic, cubic.calcPrecision(), quads);
                 for (int index = 0; index < quads.size(); ++index) {

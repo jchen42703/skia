@@ -14,9 +14,11 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "include/private/SkTPin.h"
-#include "include/private/SkTo.h"
+#include "include/private/base/SkTPin.h"
+#include "include/private/base/SkTo.h"
+#include "include/utils/SkBase64.h"
 #include "include/utils/SkPaintFilterCanvas.h"
+#include "src/base/SkTSort.h"
 #include "src/core/SkAutoPixmapStorage.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkImagePriv.h"
@@ -26,7 +28,6 @@
 #include "src/core/SkScan.h"
 #include "src/core/SkStringUtils.h"
 #include "src/core/SkSurfacePriv.h"
-#include "src/core/SkTSort.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/core/SkTextBlobPriv.h"
 #include "src/core/SkVMBlitter.h"
@@ -49,21 +50,20 @@
 #include "tools/viewer/GMSlide.h"
 #include "tools/viewer/ImageSlide.h"
 #include "tools/viewer/MSKPSlide.h"
-#include "tools/viewer/ParticlesSlide.h"
 #include "tools/viewer/SKPSlide.h"
-#include "tools/viewer/SampleSlide.h"
 #include "tools/viewer/SkSLDebuggerSlide.h"
 #include "tools/viewer/SkSLSlide.h"
 #include "tools/viewer/SlideDir.h"
 #include "tools/viewer/SvgSlide.h"
 
-#if SK_GPU_V1
+#if defined(SK_GANESH)
 #include "src/gpu/ganesh/ops/AtlasPathRenderer.h"
 #include "src/gpu/ganesh/ops/TessellationPathRenderer.h"
 #endif
 
 #include <cstdlib>
 #include <map>
+#include <regex>
 
 #include "imgui.h"
 #include "misc/cpp/imgui_stdlib.h"  // For ImGui support of std::string
@@ -80,6 +80,8 @@
 #include "modules/svg/include/SkSVGOpenTypeSVGDecoder.h"
 #endif
 
+using namespace skia_private;
+
 class CapturingShaderErrorHandler : public GrContextOptions::ShaderErrorHandler {
 public:
     void compileError(const char* shader, const char* errors) override {
@@ -88,12 +90,12 @@ public:
     }
 
     void reset() {
-        fShaders.reset();
-        fErrors.reset();
+        fShaders.clear();
+        fErrors.clear();
     }
 
-    SkTArray<SkString> fShaders;
-    SkTArray<SkString> fErrors;
+    TArray<SkString> fShaders;
+    TArray<SkString> fErrors;
 };
 
 static CapturingShaderErrorHandler gShaderErrorHandler;
@@ -203,7 +205,7 @@ const char* get_backend_string(sk_app::Window::BackendType type) {
 #endif
 #ifdef SK_DAWN
         case sk_app::Window::kDawn_BackendType: return "Dawn";
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
         case sk_app::Window::kGraphiteDawn_BackendType: return "Dawn (Graphite)";
 #endif
 #endif
@@ -212,7 +214,7 @@ const char* get_backend_string(sk_app::Window::BackendType type) {
 #endif
 #ifdef SK_METAL
         case sk_app::Window::kMetal_BackendType: return "Metal";
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
         case sk_app::Window::kGraphiteMetal_BackendType: return "Metal (Graphite)";
 #endif
 #endif
@@ -230,7 +232,7 @@ static sk_app::Window::BackendType get_backend_type(const char* str) {
     if (0 == strcmp(str, "dawn")) {
         return sk_app::Window::kDawn_BackendType;
     } else
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     if (0 == strcmp(str, "grdawn")) {
         return sk_app::Window::kGraphiteDawn_BackendType;
     } else
@@ -250,7 +252,7 @@ static sk_app::Window::BackendType get_backend_type(const char* str) {
     if (0 == strcmp(str, "mtl")) {
         return sk_app::Window::kMetal_BackendType;
     } else
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     if (0 == strcmp(str, "grmtl")) {
         return sk_app::Window::kGraphiteMetal_BackendType;
     } else
@@ -338,8 +340,6 @@ extern bool gUseSkVMBlitter;
 extern bool gSkVMAllowJIT;
 extern bool gSkVMJITViaDylib;
 
-static bool ColrV1VariationsEnabledForTest() { return true; }
-
 Viewer::Viewer(int argc, char** argv, void* platformData)
     : fCurrentSlide(-1)
     , fRefresh(false)
@@ -373,7 +373,6 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
 #if defined(SK_ENABLE_SVG)
     SkGraphics::SetOpenTypeSVGDecoderFactory(SkSVGOpenTypeSVGDecoder::Make);
 #endif
-    SkGraphics::SetVariableColrV1EnabledFunc(ColrV1VariationsEnabledForTest);
 
     gPathRendererNames[GpuPathRenderers::kDefault] = "Default Path Renderers";
     gPathRendererNames[GpuPathRenderers::kAtlas] = "Atlas (tessellation)";
@@ -768,6 +767,52 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     this->setCurrentSlide(this->startupSlide());
 }
 
+static sk_sp<SkData> data_from_file(FILE* fp) {
+    SkDynamicMemoryWStream stream;
+    char buf[4096];
+    while (size_t bytesRead = fread(buf, 1, 4096, fp)) {
+        stream.write(buf, bytesRead);
+    }
+    return stream.detachAsData();
+}
+
+static sk_sp<SkData> base64_string_to_data(const std::string& s) {
+    size_t dataLen;
+    if (SkBase64::Decode(s.c_str(), s.size(), nullptr, &dataLen) != SkBase64::kNoError) {
+        return nullptr;
+    }
+
+    sk_sp<SkData> decodedData = SkData::MakeUninitialized(dataLen);
+    void* rawData = decodedData->writable_data();
+    if (SkBase64::Decode(s.c_str(), s.size(), rawData, &dataLen) != SkBase64::kNoError) {
+        return nullptr;
+    }
+
+    return decodedData;
+}
+
+static std::vector<sk_sp<SkImage>> find_data_uri_images(sk_sp<SkData> data) {
+    std::string str(reinterpret_cast<const char*>(data->data()), data->size());
+    std::regex re("data:image/png;base64,([a-zA-Z0-9+/=]+)");
+    std::sregex_iterator images_begin(str.begin(), str.end(), re);
+    std::sregex_iterator images_end;
+    std::vector<sk_sp<SkImage>> images;
+
+    for (auto iter = images_begin; iter != images_end; ++iter) {
+        const std::smatch& match = *iter;
+        auto raw = base64_string_to_data(match[1].str());
+        if (!raw) {
+            continue;
+        }
+        auto image = SkImage::MakeFromEncoded(std::move(raw));
+        if (image) {
+            images.push_back(std::move(image));
+        }
+    }
+
+    return images;
+}
+
 void Viewer::initSlides() {
     using SlideMaker = sk_sp<Slide> (*)(const SkString& name, const SkString& path);
     static const struct {
@@ -807,7 +852,7 @@ void Viewer::initSlides() {
 #endif
     };
 
-    SkTArray<sk_sp<Slide>> dirSlides;
+    TArray<sk_sp<Slide>> dirSlides;
 
     const auto addSlide = [&](const SkString& name, const SkString& path, const SlideMaker& fact) {
         if (CommandLineFlags::ShouldSkip(FLAGS_match, name.c_str())) {
@@ -823,6 +868,23 @@ void Viewer::initSlides() {
     if (!FLAGS_file.isEmpty()) {
         // single file mode
         const SkString file(FLAGS_file[0]);
+
+        // `--file stdin` parses stdin, looking for data URIs that encode images
+        if (file.equals("stdin")) {
+            sk_sp<SkData> data = data_from_file(stdin);
+            std::vector<sk_sp<SkImage>> images = find_data_uri_images(std::move(data));
+            // TODO: If there is an even number of images, create diff images from consecutive pairs
+            // (Maybe do this optionally? Or add a dedicated diff-slide that can show diff stats?)
+            for (auto image : images) {
+                char imageID = 'A' + fSlides.size();
+                fSlides.push_back(sk_make_sp<ImageSlide>(SkStringPrintf("Image %c", imageID),
+                                                         std::move(image)));
+            }
+            if (!fSlides.empty()) {
+                fShowZoomWindow = true;
+                return;
+            }
+        }
 
         if (sk_exists(file.c_str(), kRead_SkFILE_Flag)) {
             for (const auto& sinfo : gExternalSlidesInfo) {
@@ -868,14 +930,7 @@ void Viewer::initSlides() {
     };
     std::sort(fSlides.begin() + firstGM, fSlides.end(), orderBySlideName);
 
-    // samples
-    int firstSample = fSlides.size();
-    for (const SampleFactory factory : SampleRegistry::Range()) {
-        auto slide = sk_make_sp<SampleSlide>(factory);
-        if (!CommandLineFlags::ShouldSkip(FLAGS_match, slide->getName().c_str())) {
-            fSlides.push_back(slide);
-        }
-    }
+    int firstRegisteredSlide = fSlides.size();
 
     // Registered slides are replacing Samples.
     for (const SlideFactory& factory : SlideRegistry::Range()) {
@@ -885,7 +940,7 @@ void Viewer::initSlides() {
         }
     }
 
-    std::sort(fSlides.begin() + firstSample, fSlides.end(), orderBySlideName);
+    std::sort(fSlides.begin() + firstRegisteredSlide, fSlides.end(), orderBySlideName);
 
     // Runtime shader editor
     {
@@ -911,7 +966,7 @@ void Viewer::initSlides() {
             } else {
                 // directory
                 SkString name;
-                SkTArray<SkString> sortedFilenames;
+                TArray<SkString> sortedFilenames;
                 SkOSFile::Iter it(flag.c_str(), info.fExtension);
                 while (it.next(&name)) {
                     sortedFilenames.push_back(name);
@@ -931,7 +986,7 @@ void Viewer::initSlides() {
                 fSlides.push_back(
                     sk_make_sp<SlideDir>(SkStringPrintf("%s[%s]", info.fDirName, flag.c_str()),
                                          std::move(dirSlides)));
-                dirSlides.reset();  // NOLINT(bugprone-use-after-move)
+                dirSlides.clear();  // NOLINT(bugprone-use-after-move)
             }
         }
     }
@@ -1279,7 +1334,7 @@ SkMatrix Viewer::computeMatrix() {
 
 void Viewer::setBackend(sk_app::Window::BackendType backendType) {
     fPersistentCache.reset();
-    fCachedShaders.reset();
+    fCachedShaders.clear();
     fBackendType = backendType;
 
     // The active context is going away in 'detach'
@@ -1535,7 +1590,7 @@ void Viewer::drawSlide(SkSurface* surface) {
     if (fSaveToSKP) {
         SkPictureRecorder recorder;
         SkCanvas* recorderCanvas = recorder.beginRecording(SkRect::Make(this->currentSlideSize()));
-        fSlides[fCurrentSlide]->draw(fWindow->graphiteContext(), recorderCanvas);
+        fSlides[fCurrentSlide]->draw(recorderCanvas);
         sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
         SkFILEWStream stream("sample_app.skp");
         picture->serialize(&stream);
@@ -1603,7 +1658,7 @@ void Viewer::drawSlide(SkSurface* surface) {
             for (int x = 0; x < fWindow->width(); x += tileW) {
                 SkAutoCanvasRestore acr(slideCanvas, true);
                 slideCanvas->clipRect(SkRect::MakeXYWH(x, y, tileW, tileH));
-                fSlides[fCurrentSlide]->draw(fWindow->graphiteContext(), slideCanvas);
+                fSlides[fCurrentSlide]->draw(slideCanvas);
             }
         }
 
@@ -1627,9 +1682,9 @@ void Viewer::drawSlide(SkSurface* surface) {
             OveridePaintFilterCanvas filterCanvas(slideCanvas,
                                                   &fPaint, &fPaintOverrides,
                                                   &fFont, &fFontOverrides);
-            fSlides[fCurrentSlide]->draw(fWindow->graphiteContext(), &filterCanvas);
+            fSlides[fCurrentSlide]->draw(&filterCanvas);
         } else {
-            fSlides[fCurrentSlide]->draw(fWindow->graphiteContext(), slideCanvas);
+            fSlides[fCurrentSlide]->draw(slideCanvas);
         }
     }
     fStatsLayer.endTiming(fPaintTimer);
@@ -1821,15 +1876,12 @@ bool Viewer::onPinch(skui::InputState state, float scale, float x, float y) {
         case skui::InputState::kDown:
             fGesture.startZoom();
             return true;
-            break;
         case skui::InputState::kMove:
             fGesture.updateZoom(scale, x, y, x, y);
             return true;
-            break;
         case skui::InputState::kUp:
             fGesture.endZoom();
             return true;
-            break;
         default:
             SkASSERT(false);
             break;
@@ -1967,7 +2019,7 @@ void Viewer::drawImGui() {
 #if defined(SK_METAL)
                 ImGui::SameLine();
                 ImGui::RadioButton("Metal", &newBackend, sk_app::Window::kMetal_BackendType);
-#if defined(SK_GRAPHITE_ENABLED)
+#if defined(SK_GRAPHITE)
                 ImGui::SameLine();
                 ImGui::RadioButton("Metal (Graphite)", &newBackend,
                                    sk_app::Window::kGraphiteMetal_BackendType);
@@ -2070,7 +2122,7 @@ void Viewer::drawImGui() {
                         ImGui::RadioButton("Software", true);
                     } else {
                         prButton(GpuPathRenderers::kDefault);
-#if SK_GPU_V1
+#if defined(SK_GANESH)
                         if (fWindow->sampleCount() > 1 || FLAGS_dmsaa) {
                             const auto* caps = ctx->priv().caps();
                             if (skgpu::v1::AtlasPathRenderer::IsSupported(ctx)) {
@@ -2550,7 +2602,7 @@ void Viewer::drawImGui() {
                                                                     entry.fInputs,
                                                                     kGrShaderTypeCount);
                     };
-                    fCachedShaders.reset();
+                    fCachedShaders.clear();
                     fPersistentCache.foreach(collectShaders);
                     gLoadPending = false;
 
@@ -2936,7 +2988,7 @@ void Viewer::dumpShadersToResources() {
 }
 
 void Viewer::onIdle() {
-    SkTArray<std::function<void()>> actionsToRun;
+    TArray<std::function<void()>> actionsToRun;
     actionsToRun.swap(fDeferredActions);
 
     for (const auto& fn : actionsToRun) {
@@ -3030,7 +3082,7 @@ void Viewer::updateUIState() {
                 writer.appendNString("Software");
             } else {
                 writer.appendString(gPathRendererNames[GpuPathRenderers::kDefault]);
-#if SK_GPU_V1
+#if defined(SK_GANESH)
                 if (fWindow->sampleCount() > 1 || FLAGS_dmsaa) {
                     const auto* caps = ctx->priv().caps();
                     if (skgpu::v1::AtlasPathRenderer::IsSupported(ctx)) {

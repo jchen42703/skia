@@ -8,11 +8,12 @@
 #ifndef SKSL_SPIRVCODEGENERATOR
 #define SKSL_SPIRVCODEGENERATOR
 
+#include "include/core/SkSpan.h"
 #include "include/private/SkSLDefines.h"
 #include "include/private/SkSLLayout.h"
 #include "include/private/SkSLModifiers.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTHash.h"
+#include "include/private/base/SkTArray.h"
+#include "src/core/SkTHash.h"
 #include "src/sksl/SkSLMemoryLayout.h"
 #include "src/sksl/SkSLStringStream.h"
 #include "src/sksl/codegen/SkSLCodeGenerator.h"
@@ -26,10 +27,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
-
-template <typename T> class SkSpan;
 
 namespace SkSL {
 
@@ -49,6 +50,7 @@ class FieldAccess;
 class ForStatement;
 class FunctionCall;
 class IfStatement;
+class IndexExpression;
 class Literal;
 class Operator;
 class OutputStream;
@@ -59,14 +61,13 @@ class ProgramElement;
 class ReturnStatement;
 class Statement;
 class SwitchStatement;
+class Swizzle;
 class TernaryExpression;
 class VarDeclaration;
 class VariableReference;
 enum class ProgramKind : int8_t;
 enum IntrinsicKind : int8_t;
-struct IndexExpression;
 struct Program;
-struct Swizzle;
 
 /**
  * Converts a Program into a SPIR-V binary.
@@ -187,7 +188,9 @@ private:
 
     SpvId writeFunction(const FunctionDefinition& f, OutputStream& out);
 
-    void writeGlobalVar(ProgramKind kind, const VarDeclaration& v);
+    bool writeGlobalVarDeclaration(ProgramKind kind, const VarDeclaration& v);
+
+    SpvId writeGlobalVar(ProgramKind kind, SpvStorageClass_, const Variable& v);
 
     void writeVarDeclaration(const VarDeclaration& var, OutputStream& out);
 
@@ -204,7 +207,8 @@ private:
     SpvId writeFunctionCallArgument(const FunctionCall& call,
                                     int argIndex,
                                     std::vector<TempVar>* tempVars,
-                                    OutputStream& out);
+                                    OutputStream& out,
+                                    SpvId* outSynthesizedSamplerId = nullptr);
 
     void copyBackTempVars(const std::vector<TempVar>& tempVars, OutputStream& out);
 
@@ -507,6 +511,9 @@ private:
 
     void addRTFlipUniform(Position pos);
 
+    std::tuple<const Variable*, const Variable*> synthesizeTextureAndSampler(
+            const Variable& combinedSampler);
+
     const MemoryLayout fDefaultLayout;
 
     uint64_t fCapabilities;
@@ -528,6 +535,22 @@ private:
     StringStream fVariableBuffer;
     StringStream fNameBuffer;
     StringStream fDecorationBuffer;
+
+    // Mapping from combined sampler declarations to synthesized texture/sampler variables.
+    // This is only used if the SPIRVDawnCompatMode setting is enabled.
+    // TODO(skia:14023): Remove when WGSL codegen is complete
+    struct SynthesizedTextureSamplerPair {
+        // The names of the synthesized variables. The Variable objects themselves store string
+        // views referencing these strings. It is important for the std::string instances to have a
+        // fixed memory location after the string views get created, which is why
+        // `fSynthesizedSamplerMap` stores unique_ptr instead of values.
+        std::string fTextureName;
+        std::string fSamplerName;
+        std::unique_ptr<Variable> fTexture;
+        std::unique_ptr<Variable> fSampler;
+    };
+    SkTHashMap<const Variable*, std::unique_ptr<SynthesizedTextureSamplerPair>>
+            fSynthesizedSamplerMap;
 
     // These caches map SpvIds to Instructions, and vice-versa. This enables us to deduplicate code
     // (by detecting an Instruction we've already issued and reusing the SpvId), and to introspect

@@ -31,10 +31,10 @@
 #include "include/core/SkString.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTime.h"
-#include "include/private/SkMacros.h"
-#include "src/core/SkAutoMalloc.h"
+#include "include/private/base/SkMacros.h"
+#include "src/base/SkAutoMalloc.h"
+#include "src/base/SkLeanWindows.h"
 #include "src/core/SkColorSpacePriv.h"
-#include "src/core/SkLeanWindows.h"
 #include "src/core/SkOSFile.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/core/SkTraceEvent.h"
@@ -63,7 +63,7 @@
 #include "client_utils/android/BitmapRegionDecoder.h"
 #endif
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 #include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/Recorder.h"
 #include "include/gpu/graphite/Recording.h"
@@ -96,6 +96,8 @@ SK_BLITTER_TRACE_INIT
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/SkGr.h"
 #include "tools/gpu/GrContextFactory.h"
+
+using namespace skia_private;
 
 using sk_gpu_test::ContextInfo;
 using sk_gpu_test::GrContextFactory;
@@ -277,7 +279,10 @@ struct GPUTarget : public Target {
         SkSurfaceProps props(this->config.surfaceFlags, kRGB_H_SkPixelGeometry);
         this->surface = SkSurface::MakeRenderTarget(
                 this->factory->get(this->config.ctxType, this->config.ctxOverrides),
-                SkBudgeted::kNo, info, this->config.samples, &props);
+                skgpu::Budgeted::kNo,
+                info,
+                this->config.samples,
+                &props);
         this->contextInfo =
                 this->factory->getContextInfo(this->config.ctxType, this->config.ctxOverrides);
         if (!this->surface) {
@@ -299,7 +304,7 @@ struct GPUTarget : public Target {
     }
 };
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 struct GraphiteTarget : public Target {
     explicit GraphiteTarget(const Config& c) : Target(c) {}
     using TestContext = skiatest::graphite::GraphiteTestContext;
@@ -378,7 +383,7 @@ struct GraphiteTarget : public Target {
     void dumpStats() override {
     }
 };
-#endif // SK_GRAPHITE_ENABLED
+#endif // SK_GRAPHITE
 
 static double time(int loops, Benchmark* bench, Target* target) {
     SkCanvas* canvas = target->getCanvas();
@@ -590,7 +595,7 @@ static std::optional<Config> create_config(const SkCommandLineConfig* config) {
                       ctxOverrides,
                       gpuConfig->getSurfaceFlags()};
     }
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     if (const auto* gpuConfig = config->asConfigGraphite()) {
         if (!FLAGS_gpu) {
             SkDebugf("Skipping config '%s' as requested.\n", config->getTag().c_str());
@@ -676,7 +681,7 @@ static std::optional<Config> create_config(const SkCommandLineConfig* config) {
 }
 
 // Append all configs that are enabled and supported.
-void create_configs(SkTArray<Config>* configs) {
+void create_configs(TArray<Config>* configs) {
     SkCommandLineConfigArray array;
     ParseConfigs(FLAGS_config, &array);
     for (int i = 0; i < array.size(); ++i) {
@@ -715,7 +720,7 @@ static Target* is_enabled(Benchmark* bench, const Config& config) {
     case Benchmark::kGPU_Backend:
         target = new GPUTarget(config);
         break;
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     case Benchmark::kGraphite_Backend:
         target = new GraphiteTarget(config);
         break;
@@ -765,7 +770,7 @@ static void cleanup_run(Target* target) {
 
 static void collect_files(const CommandLineFlags::StringArray& paths,
                           const char*                          ext,
-                          SkTArray<SkString>*                  list) {
+                          TArray<SkString>*                  list) {
     for (int i = 0; i < paths.size(); ++i) {
         if (SkStrEndsWith(paths[i], ext)) {
             list->push_back(SkString(paths[i]));
@@ -1266,13 +1271,13 @@ private:
     const BenchRegistry* fBenches;
     const skiagm::GMRegistry* fGMs;
     SkIRect            fClip;
-    SkTArray<SkScalar> fScales;
-    SkTArray<SkString> fSKPs;
-    SkTArray<SkString> fMSKPs;
-    SkTArray<SkString> fSVGs;
-    SkTArray<SkString> fTextBlobTraces;
-    SkTArray<SkString> fImages;
-    SkTArray<SkColorType, true> fColorTypes;
+    TArray<SkScalar> fScales;
+    TArray<SkString> fSKPs;
+    TArray<SkString> fMSKPs;
+    TArray<SkString> fSVGs;
+    TArray<SkString> fTextBlobTraces;
+    TArray<SkString> fImages;
+    TArray<SkColorType, true> fColorTypes;
     SkScalar           fZoomMax;
     double             fZoomPeriodMs;
 
@@ -1393,7 +1398,7 @@ int main(int argc, char** argv) {
         SkDebugf("Timer overhead: %s\n", HUMANIZE(overhead));
     }
 
-    SkTArray<double> samples;
+    TArray<double> samples;
 
     if (kAutoTuneLoops != FLAGS_loops) {
         SkDebugf("Fixed number of loops; times would only be misleading so we won't print them.\n");
@@ -1411,7 +1416,7 @@ int main(int argc, char** argv) {
 
     GrRecordingContextPriv::DMSAAStats combinedDMSAAStats;
 
-    SkTArray<Config> configs;
+    TArray<Config> configs;
     create_configs(&configs);
 
     if (FLAGS_keepAlive) {
@@ -1500,7 +1505,7 @@ int main(int argc, char** argv) {
             }
 
             if (FLAGS_ms) {
-                samples.reset();
+                samples.clear();
                 auto stop = now_ms() + FLAGS_ms;
                 do {
                     samples.push_back(time(loops, bench.get(), target) / loops);
@@ -1519,8 +1524,8 @@ int main(int argc, char** argv) {
                 sample *= (1.0 / bench->getUnits());
             }
 
-            SkTArray<SkString> keys;
-            SkTArray<double> values;
+            TArray<SkString> keys;
+            TArray<double> values;
             if (configs[i].backend == Benchmark::kGPU_Backend) {
                 if (FLAGS_gpuStatsDump) {
                     // TODO cache stats

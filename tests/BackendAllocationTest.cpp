@@ -18,7 +18,9 @@
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkString.h"
 #include "include/core/SkSurface.h"
+#include "include/core/SkTextureCompressionType.h"
 #include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrContextOptions.h"
 #include "include/gpu/GrDirectContext.h"
@@ -214,8 +216,8 @@ static bool isBGRA8(const GrBackendFormat& format) {
 #endif
         }
         case GrBackendApi::kMock: {
-            SkImage::CompressionType compression = format.asMockCompressionType();
-            if (compression != SkImage::CompressionType::kNone) {
+            SkTextureCompressionType compression = format.asMockCompressionType();
+            if (compression != SkTextureCompressionType::kNone) {
                 return false; // No compressed formats are BGRA
             }
 
@@ -616,6 +618,7 @@ void color_type_backend_allocation_test(const sk_gpu_test::ContextInfo& ctxInfo,
         // RGB/BGR 101010x have no Ganesh correlate
         { kRGB_101010x_SkColorType,       { 0, 0.5f, 0, 0.5f }     },
         { kBGR_101010x_SkColorType,       { 0, 0.5f, 0, 0.5f }     },
+        { kBGR_101010x_XR_SkColorType,    { 0, 0.5f, 0, 0.5f }     },
         { kGray_8_SkColorType,            kGrayCol                 },
         { kRGBA_F16Norm_SkColorType,      SkColors::kLtGray        },
         { kRGBA_F16_SkColorType,          SkColors::kYellow        },
@@ -639,6 +642,12 @@ void color_type_backend_allocation_test(const sk_gpu_test::ContextInfo& ctxInfo,
             if (kRGBA_F32_SkColorType == combo.fColorType) {
                 continue;
             }
+        }
+
+        if (colorType == kBGR_101010x_XR_SkColorType) {
+            // Creating a texture with kBGR_101010x_XR_SkColorType is not
+            // implemented.
+            continue;
         }
 
         for (auto mipmapped : {GrMipmapped::kNo, GrMipmapped::kYes}) {

@@ -9,8 +9,8 @@
 #define SKSL_METALCODEGENERATOR
 
 #include "include/private/SkSLDefines.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTHash.h"
+#include "include/private/base/SkTArray.h"
+#include "src/core/SkTHash.h"
 #include "src/sksl/SkSLStringStream.h"
 #include "src/sksl/codegen/SkSLCodeGenerator.h"
 #include "src/sksl/ir/SkSLType.h"
@@ -41,8 +41,10 @@ class FunctionDeclaration;
 class FunctionDefinition;
 class FunctionPrototype;
 class IfStatement;
+class IndexExpression;
 class InterfaceBlock;
 class Literal;
+class Operator;
 class OutputStream;
 class Position;
 class PostfixExpression;
@@ -52,17 +54,16 @@ class ReturnStatement;
 class Statement;
 class StructDefinition;
 class SwitchStatement;
+class Swizzle;
 class TernaryExpression;
 class VarDeclaration;
 class Variable;
 class VariableReference;
 enum class OperatorPrecedence : uint8_t;
 enum IntrinsicKind : int8_t;
-struct IndexExpression;
 struct Layout;
 struct Modifiers;
 struct Program;
-struct Swizzle;
 
 /**
  * Converts a Program into Metal code.
@@ -240,6 +241,11 @@ protected:
 
     // Splats a scalar expression across a matrix of arbitrary size.
     void writeNumberAsMatrix(const Expression& expr, const Type& matrixType);
+
+    void writeBinaryExpressionElement(const Expression& expr,
+                                      Operator op,
+                                      const Expression& other,
+                                      Precedence precedence);
 
     void writeBinaryExpression(const BinaryExpression& b, Precedence parentPrecedence);
 

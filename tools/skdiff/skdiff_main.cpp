@@ -9,15 +9,17 @@
 #include "include/core/SkImageEncoder.h"
 #include "include/core/SkPixelRef.h"
 #include "include/core/SkStream.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
+#include "src/base/SkTSearch.h"
 #include "src/core/SkOSFile.h"
-#include "src/core/SkTSearch.h"
 #include "src/utils/SkOSPath.h"
 #include "tools/skdiff/skdiff.h"
 #include "tools/skdiff/skdiff_html.h"
 #include "tools/skdiff/skdiff_utils.h"
 
 #include <stdlib.h>
+
+using namespace skia_private;
 
 /**
  * skdiff
@@ -33,7 +35,7 @@
  * Returns zero exit code if all images match across baseDir and comparisonDir.
  */
 
-typedef SkTArray<SkString> StringArray;
+typedef TArray<SkString> StringArray;
 typedef StringArray FileArray;
 
 static void add_unique_basename(StringArray* array, const SkString& filename) {

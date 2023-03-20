@@ -5,8 +5,8 @@
  * found in the LICENSE file.
  */
 
-#include "include/private/SkTArray.h"
-#include "include/utils/SkRandom.h"
+#include "include/private/base/SkTArray.h"
+#include "src/base/SkRandom.h"
 #include "tests/Test.h"
 
 #include <array>
@@ -204,8 +204,8 @@ template <typename T> static void test_swap(skiatest::Reporter* reporter,
 
         for (auto sizeA : sizes) {
         for (auto sizeB : sizes) {
-            a->reset();
-            b->reset();
+            a->clear();
+            b->clear();
 
             int curr = 0;
             for (int i = 0; i < sizeA; i++) { a->push_back(curr++); }

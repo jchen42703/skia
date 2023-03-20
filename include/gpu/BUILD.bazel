@@ -1,4 +1,4 @@
-load("//bazel:macros.bzl", "exports_files_legacy", "select_multi", "skia_filegroup")
+load("//bazel:skia_rules.bzl", "exports_files_legacy", "select_multi", "skia_filegroup")
 
 licenses(["notice"])
 
@@ -21,7 +21,6 @@ skia_filegroup(
         "GrBackendSemaphore.h",
         "GrBackendSurface.h",
         "GrBackendSurfaceMutableState.h",
-        "GrConfig.h",
         "GrContextOptions.h",
         "GrContextThreadSafeProxy.h",
         "GrDirectContext.h",

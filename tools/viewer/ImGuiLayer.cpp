@@ -10,6 +10,7 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkPixmap.h"
+#include "include/core/SkShader.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkSwizzle.h"
 #include "include/core/SkTime.h"
@@ -215,7 +216,7 @@ void ImGuiLayer::onPaint(SkSurface* surface) {
         }
     }
 
-    fSkiaWidgetFuncs.reset();
+    fSkiaWidgetFuncs.clear();
 }
 
 bool ImGuiLayer::onKey(skui::Key key, skui::InputState state, skui::ModifierKey modifiers) {

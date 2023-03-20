@@ -98,6 +98,9 @@ struct ShaderCaps {
     bool fExternalTextureSupport = false;
     bool fFloatIs32Bits = true;
 
+    // isinf() is defined, and floating point infinities are handled according to IEEE standards.
+    bool fInfinitySupport = false;
+
     // Used by SkSL to know when to generate polyfills.
     bool fBuiltinFMASupport = true;
     bool fBuiltinDeterminantSupport = true;
@@ -173,7 +176,7 @@ protected:
     static std::unique_ptr<ShaderCaps> MakeShaderCaps();
 };
 
-#if !defined(SKSL_STANDALONE) && (SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED))
+#if !defined(SKSL_STANDALONE) && (defined(SK_GANESH) || defined(SK_GRAPHITE))
 bool type_to_sksltype(const Context& context, const Type& type, SkSLType* outType);
 #endif
 

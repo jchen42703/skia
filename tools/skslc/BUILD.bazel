@@ -1,4 +1,4 @@
-load("//bazel:macros.bzl", "exports_files_legacy", "skia_cc_binary_with_flags", "skia_cc_library", "skia_filegroup")
+load("//bazel:skia_rules.bzl", "exports_files_legacy", "skia_cc_binary_with_flags", "skia_cc_library", "skia_filegroup")
 load(":compile_sksl.bzl", "compile_sksl")
 
 licenses(["notice"])
@@ -57,6 +57,12 @@ compile_sksl(
     name = "metal_tests",
     inputs = "//resources/sksl:sksl_metal_tests_sources",
     lang = "metal",
+)
+
+compile_sksl(
+    name = "skrp_tests",
+    inputs = "//resources/sksl:sksl_skrp_tests_sources",
+    lang = "skrp",
 )
 
 compile_sksl(

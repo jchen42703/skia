@@ -7,57 +7,72 @@
 
 #include "include/core/SkCanvas.h"
 
+#include "include/core/SkAlphaType.h"
+#include "include/core/SkBitmap.h"
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkBlender.h"
 #include "include/core/SkColorFilter.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkColorType.h"
+#include "include/core/SkData.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageFilter.h"
+#include "include/core/SkMaskFilter.h"
+#include "include/core/SkMesh.h"
+#include "include/core/SkPath.h"
 #include "include/core/SkPathEffect.h"
 #include "include/core/SkPicture.h"
+#include "include/core/SkPixmap.h"
 #include "include/core/SkRRect.h"
+#include "include/core/SkRSXform.h"
 #include "include/core/SkRasterHandleAllocator.h"
-#include "include/core/SkString.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
+#include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
 #include "include/core/SkVertices.h"
-#include "include/effects/SkRuntimeEffect.h"
-#include "include/private/SkTo.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkSafe32.h"
+#include "include/private/base/SkSpan_impl.h"
+#include "include/private/base/SkTPin.h"
+#include "include/private/base/SkTemplates.h"
+#include "include/private/base/SkTo.h"
 #include "include/utils/SkNoDrawCanvas.h"
-#include "src/core/SkArenaAlloc.h"
-#include "src/core/SkBitmapDevice.h"
-#include "src/core/SkBlenderBase.h"
+#include "src/base/SkMSAN.h"
 #include "src/core/SkCanvasPriv.h"
-#include "src/core/SkClipStack.h"
 #include "src/core/SkColorFilterBase.h"
-#include "src/core/SkDraw.h"
-#include "src/core/SkImageFilterCache.h"
+#include "src/core/SkDevice.h"
+#include "src/core/SkImageFilterTypes.h"
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkLatticeIter.h"
-#include "src/core/SkMSAN.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkMatrixUtils.h"
-#include "src/core/SkMeshPriv.h"
 #include "src/core/SkPaintPriv.h"
-#include "src/core/SkRasterClip.h"
 #include "src/core/SkSpecialImage.h"
-#include "src/core/SkStrikeCache.h"
-#include "src/core/SkTLazy.h"
+#include "src/core/SkSurfacePriv.h"
 #include "src/core/SkTextBlobPriv.h"
-#include "src/core/SkTextFormatParams.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/core/SkVerticesPriv.h"
-#include "src/image/SkImage_Base.h"
 #include "src/image/SkSurface_Base.h"
 #include "src/text/GlyphRun.h"
 #include "src/utils/SkPatchUtils.h"
 
+#include <algorithm>
+#include <atomic>
+#include <functional>
 #include <memory>
 #include <new>
 #include <optional>
+#include <tuple>
+#include <utility>
+#include <vector>
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/ganesh/SkGr.h"
+#include "include/gpu/GrRecordingContext.h"
+#include "src/gpu/ganesh/Device_v1.h"
 #include "src/utils/SkTestCanvas.h"
 #if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK)
 #   include "src/gpu/ganesh/GrRenderTarget.h"
@@ -65,11 +80,12 @@
 #endif
 #endif
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 #include "src/gpu/graphite/Device.h"
 #endif
 
-#if (SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED))
+#if (defined(SK_GANESH) || defined(SK_GRAPHITE))
+#include "include/private/chromium/SkChromeRemoteGlyphCache.h"
 #include "include/private/chromium/Slug.h"
 #endif
 
@@ -146,30 +162,6 @@ bool SkCanvas::wouldOverwriteEntireSurface(const SkRect* rect, const SkPaint* pa
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// experimental for faster tiled drawing...
-//#define SK_TRACE_SAVERESTORE
-
-#ifdef SK_TRACE_SAVERESTORE
-    static int gLayerCounter;
-    static void inc_layer() { ++gLayerCounter; printf("----- inc layer %d\n", gLayerCounter); }
-    static void dec_layer() { --gLayerCounter; printf("----- dec layer %d\n", gLayerCounter); }
-
-    static int gRecCounter;
-    static void inc_rec() { ++gRecCounter; printf("----- inc rec %d\n", gRecCounter); }
-    static void dec_rec() { --gRecCounter; printf("----- dec rec %d\n", gRecCounter); }
-
-    static int gCanvasCounter;
-    static void inc_canvas() { ++gCanvasCounter; printf("----- inc canvas %d\n", gCanvasCounter); }
-    static void dec_canvas() { --gCanvasCounter; printf("----- dec canvas %d\n", gCanvasCounter); }
-#else
-    #define inc_layer()
-    #define dec_layer()
-    #define inc_rec()
-    #define dec_rec()
-    #define inc_canvas()
-    #define dec_canvas()
-#endif
-
 bool SkCanvas::predrawNotify(bool willOverwritesEntireSurface) {
     if (fSurfaceBase) {
         if (!fSurfaceBase->aboutToDraw(willOverwritesEntireSurface
@@ -216,17 +208,22 @@ SkCanvas::Layer::Layer(sk_sp<SkBaseDevice> device,
     SkASSERT(!fPaint.getImageFilter());
 }
 
+SkCanvas::BackImage::BackImage(sk_sp<SkSpecialImage> img, SkIPoint loc)
+                               :fImage(img), fLoc(loc) {}
+SkCanvas::BackImage::BackImage(const BackImage&) = default;
+SkCanvas::BackImage::BackImage(BackImage&&) = default;
+SkCanvas::BackImage& SkCanvas::BackImage::operator=(const BackImage&) = default;
+SkCanvas::BackImage::~BackImage() = default;
+
 SkCanvas::MCRec::MCRec(SkBaseDevice* device) : fDevice(device) {
     SkASSERT(fDevice);
-    inc_rec();
 }
 
 SkCanvas::MCRec::MCRec(const MCRec* prev) : fDevice(prev->fDevice), fMatrix(prev->fMatrix) {
     SkASSERT(fDevice);
-    inc_rec();
 }
 
-SkCanvas::MCRec::~MCRec() { dec_rec(); }
+SkCanvas::MCRec::~MCRec() {}
 
 void SkCanvas::MCRec::newLayer(sk_sp<SkBaseDevice> layerDevice,
                                sk_sp<SkImageFilter> filter,
@@ -429,22 +426,18 @@ void SkCanvas::init(sk_sp<SkBaseDevice> device) {
 }
 
 SkCanvas::SkCanvas() : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage)) {
-    inc_canvas();
     this->init(nullptr);
 }
 
 SkCanvas::SkCanvas(int width, int height, const SkSurfaceProps* props)
         : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage))
         , fProps(SkSurfacePropsCopyOrDefault(props)) {
-    inc_canvas();
     this->init(sk_make_sp<SkNoPixelsDevice>(
             SkIRect::MakeWH(std::max(width, 0), std::max(height, 0)), fProps));
 }
 
 SkCanvas::SkCanvas(const SkIRect& bounds)
         : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage)) {
-    inc_canvas();
-
     SkIRect r = bounds.isEmpty() ? SkIRect::MakeEmpty() : bounds;
     this->init(sk_make_sp<SkNoPixelsDevice>(r, fProps));
 }
@@ -452,45 +445,8 @@ SkCanvas::SkCanvas(const SkIRect& bounds)
 SkCanvas::SkCanvas(sk_sp<SkBaseDevice> device)
         : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage))
         , fProps(device->surfaceProps()) {
-    inc_canvas();
-
-    this->init(device);
+    this->init(std::move(device));
 }
-
-SkCanvas::SkCanvas(const SkBitmap& bitmap, const SkSurfaceProps& props)
-        : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage)), fProps(props) {
-    inc_canvas();
-
-    sk_sp<SkBaseDevice> device(new SkBitmapDevice(bitmap, fProps));
-    this->init(device);
-}
-
-SkCanvas::SkCanvas(const SkBitmap& bitmap,
-                   std::unique_ptr<SkRasterHandleAllocator> alloc,
-                   SkRasterHandleAllocator::Handle hndl,
-                   const SkSurfaceProps* props)
-        : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage))
-        , fProps(SkSurfacePropsCopyOrDefault(props))
-        , fAllocator(std::move(alloc)) {
-    inc_canvas();
-
-    sk_sp<SkBaseDevice> device(new SkBitmapDevice(bitmap, fProps, hndl));
-    this->init(device);
-}
-
-SkCanvas::SkCanvas(const SkBitmap& bitmap) : SkCanvas(bitmap, nullptr, nullptr, nullptr) {}
-
-#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
-SkCanvas::SkCanvas(const SkBitmap& bitmap, ColorBehavior)
-        : fMCStack(sizeof(MCRec), fMCRecStorage, sizeof(fMCRecStorage)) {
-    inc_canvas();
-
-    SkBitmap tmp(bitmap);
-    *const_cast<SkImageInfo*>(&tmp.info()) = tmp.info().makeColorSpace(nullptr);
-    sk_sp<SkBaseDevice> device(new SkBitmapDevice(tmp, fProps));
-    this->init(device);
-}
-#endif
 
 SkCanvas::~SkCanvas() {
     // Mark all pending layers to be discarded during restore (rather than drawn)
@@ -508,8 +464,6 @@ SkCanvas::~SkCanvas() {
     // free up the contents of our deque
     this->restoreToCount(1);    // restore everything but the last
     this->internalRestore();    // restore the last, since we're going away
-
-    dec_canvas();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -519,7 +473,7 @@ void SkCanvas::flush() {
 }
 
 void SkCanvas::onFlush() {
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     auto dContext = GrAsDirectContext(this->recordingContext());
 
     if (dContext) {
@@ -835,7 +789,7 @@ static bool draw_layer_as_sprite(const SkMatrix& matrix, const SkISize& size) {
     SkPaint paint;
     paint.setAntiAlias(true);
     SkSamplingOptions sampling{SkFilterMode::kLinear};
-    return SkTreatAsSprite(matrix, size, sampling, paint);
+    return SkTreatAsSprite(matrix, size, sampling, paint.isAntiAlias());
 }
 
 void SkCanvas::internalDrawDeviceWithFilter(SkBaseDevice* src,
@@ -1215,12 +1169,12 @@ void SkCanvas::internalSaveLayer(const SaveLayerRec& rec, SaveLayerStrategy stra
     fQuickRejectBounds = this->computeDeviceClipBounds();
 }
 
-int SkCanvas::saveLayerAlpha(const SkRect* bounds, U8CPU alpha) {
-    if (0xFF == alpha) {
+int SkCanvas::saveLayerAlphaf(const SkRect* bounds, float alpha) {
+    if (alpha >= 1.0f) {
         return this->saveLayer(bounds, nullptr);
     } else {
         SkPaint tmpPaint;
-        tmpPaint.setAlpha(alpha);
+        tmpPaint.setAlphaf(alpha);
         return this->saveLayer(bounds, &tmpPaint);
     }
 }
@@ -1770,7 +1724,7 @@ SkM44 SkCanvas::getLocalToDevice() const {
     return fMCRec->fMatrix;
 }
 
-#if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK) && SK_SUPPORT_GPU
+#if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK) && defined(SK_GANESH)
 
 SkIRect SkCanvas::topLayerBounds() const {
     return this->topDevice()->getGlobalBounds();
@@ -1787,7 +1741,7 @@ GrBackendRenderTarget SkCanvas::topLayerBackendRenderTarget() const {
 #endif
 
 GrRecordingContext* SkCanvas::recordingContext() {
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     if (auto gpuDevice = this->topDevice()->asGaneshDevice()) {
         return gpuDevice->recordingContext();
     }
@@ -1797,7 +1751,7 @@ GrRecordingContext* SkCanvas::recordingContext() {
 }
 
 skgpu::graphite::Recorder* SkCanvas::recorder() {
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     if (auto graphiteDevice = this->topDevice()->asGraphiteDevice()) {
         return graphiteDevice->recorder();
     }
@@ -2241,7 +2195,7 @@ bool SkCanvas::canDrawBitmapAsSprite(SkScalar x, SkScalar y, int w, int h,
     }
 
     const SkMatrix& ctm = this->getTotalMatrix();
-    if (!SkTreatAsSprite(ctm, SkISize::Make(w, h), sampling, paint)) {
+    if (!SkTreatAsSprite(ctm, SkISize::Make(w, h), sampling, paint.isAntiAlias())) {
         return false;
     }
 
@@ -2425,7 +2379,7 @@ void SkCanvas::onDrawGlyphRunList(const sktext::GlyphRunList& glyphRunList, cons
     }
 }
 
-#if (SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED))
+#if (defined(SK_GANESH) || defined(SK_GRAPHITE))
 sk_sp<Slug> SkCanvas::convertBlobToSlug(
         const SkTextBlob& blob, SkPoint origin, const SkPaint& paint) {
     TRACE_EVENT0("skia", TRACE_FUNC);
@@ -2539,7 +2493,7 @@ void SkCanvas::drawGlyphs(int count, const SkGlyphID glyphs[], const SkRSXform x
     this->onDrawGlyphRunList(glyphRunList, paint);
 }
 
-#if SK_SUPPORT_GPU && GR_TEST_UTILS
+#if defined(SK_GANESH) && GR_TEST_UTILS
 bool gSkBlobAsSlugTesting = false;
 #endif
 
@@ -2562,7 +2516,7 @@ void SkCanvas::drawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,
         totalGlyphCount += r.fGlyphCount;
     }
 
-#if SK_SUPPORT_GPU && GR_TEST_UTILS
+#if defined(SK_GANESH) && GR_TEST_UTILS
     // Draw using text blob normally or if the blob has RSX form because slugs can't convert that
     // form.
     if (!gSkBlobAsSlugTesting ||
@@ -2572,7 +2526,7 @@ void SkCanvas::drawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,
     {
         this->onDrawTextBlob(blob, x, y, paint);
     }
-#if SK_SUPPORT_GPU && GR_TEST_UTILS
+#if defined(SK_GANESH) && GR_TEST_UTILS
     else {
         auto slug = Slug::ConvertBlob(this, *blob, {x, y}, paint);
         slug->draw(this);
@@ -2972,7 +2926,7 @@ SkRasterHandleAllocator::MakeCanvas(std::unique_ptr<SkRasterHandleAllocator> all
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-#if SK_SUPPORT_GPU && GR_TEST_UTILS
+#if defined(SK_GANESH) && GR_TEST_UTILS
 SkTestCanvas<SkSlugTestKey>::SkTestCanvas(SkCanvas* canvas)
         : SkCanvas(sk_ref_sp(canvas->baseDevice())) {}
 
@@ -3017,6 +2971,109 @@ void SkTestCanvas<SkSerializeSlugTestKey>::onDrawGlyphRunList(
             {
                 if (bytes != nullptr) {
                     auto slug = Slug::Deserialize(bytes->data(), bytes->size());
+                    this->drawSlug(slug.get());
+                }
+            }
+        }
+    }
+}
+
+// A do nothing handle manager for the remote strike server.
+class ServerHandleManager : public SkStrikeServer::DiscardableHandleManager {
+public:
+    SkDiscardableHandleId createHandle() override {
+        return 0;
+    }
+
+    bool lockHandle(SkDiscardableHandleId id) override {
+        return true;
+    }
+
+    bool isHandleDeleted(SkDiscardableHandleId id) override {
+        return false;
+    }
+};
+
+// Lock the strikes into the cache for the length of the test. This handler is tied to the lifetime
+// of the canvas used to render the entire test.
+class ClientHandleManager : public SkStrikeClient::DiscardableHandleManager {
+public:
+    bool deleteHandle(SkDiscardableHandleId id) override {
+        return fIsLocked;
+    }
+
+    void assertHandleValid(SkDiscardableHandleId id) override {
+        DiscardableHandleManager::assertHandleValid(id);
+    }
+
+    void notifyCacheMiss(SkStrikeClient::CacheMissType type, int fontSize) override {
+
+    }
+
+    void notifyReadFailure(const ReadFailureData& data) override {
+        DiscardableHandleManager::notifyReadFailure(data);
+    }
+
+    void unlock() {
+        fIsLocked = true;
+    }
+
+private:
+    bool fIsLocked{false};
+};
+
+SkTestCanvas<SkRemoteSlugTestKey>::SkTestCanvas(SkCanvas* canvas)
+        : SkCanvas(sk_ref_sp(canvas->baseDevice()))
+        , fServerHandleManager(new ServerHandleManager{})
+        , fClientHandleManager(new ClientHandleManager{})
+        , fStrikeServer(fServerHandleManager.get())
+        , fStrikeClient(fClientHandleManager) {}
+
+// Allow the strikes to be freed from the strike cache after the test has been drawn.
+SkTestCanvas<SkRemoteSlugTestKey>::~SkTestCanvas() {
+    static_cast<ClientHandleManager*>(fClientHandleManager.get())->unlock();
+}
+
+void SkTestCanvas<SkRemoteSlugTestKey>::onDrawGlyphRunList(
+        const sktext::GlyphRunList& glyphRunList, const SkPaint& paint) {
+    SkRect bounds = glyphRunList.sourceBoundsWithOrigin();
+    if (this->internalQuickReject(bounds, paint)) {
+        return;
+    }
+    auto layer = this->aboutToDraw(this, paint, &bounds);
+    if (layer) {
+        if (glyphRunList.hasRSXForm()) {
+            this->SkCanvas::onDrawGlyphRunList(glyphRunList, layer->paint());
+        } else {
+            sk_sp<SkData> slugBytes;
+            std::vector<uint8_t> glyphBytes;
+            {
+                auto analysisCanvas = fStrikeServer.makeAnalysisCanvas(
+                        this->topDevice()->width(),
+                        this->topDevice()->height(),
+                        this->fProps,
+                        this->topDevice()->imageInfo().refColorSpace(),
+                        // TODO: Where should we get this value from?
+                        /*DFTSupport=*/ true);
+
+                // TODO: Move the analysis canvas processing up to the via to handle a whole
+                //  document at a time. This is not the correct way to handle the CTM; it doesn't
+                //  work for layers.
+                analysisCanvas->setMatrix(this->getLocalToDevice());
+                auto slug = analysisCanvas->onConvertGlyphRunListToSlug(glyphRunList,
+                                                                        layer->paint());
+                if (slug != nullptr) {
+                    slugBytes = slug->serialize();
+                }
+                fStrikeServer.writeStrikeData(&glyphBytes);
+            }
+            {
+                if (!glyphBytes.empty()) {
+                    fStrikeClient.readStrikeData(glyphBytes.data(), glyphBytes.size());
+                }
+                if (slugBytes != nullptr) {
+                    auto slug = Slug::Deserialize(
+                            slugBytes->data(), slugBytes->size(), &fStrikeClient);
                     this->drawSlug(slug.get());
                 }
             }

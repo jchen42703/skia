@@ -34,11 +34,13 @@ class GrTextureProxy;
 struct GrVkBackendContext;
 
 class SkImage;
+class SkPixmap;
 class SkString;
 class SkSurfaceCharacterization;
 class SkSurfaceProps;
 class SkTaskGroup;
 class SkTraceMemoryDump;
+enum class SkTextureCompressionType;
 
 namespace skgpu {
 class Swizzle;
@@ -674,7 +676,7 @@ public:
     }
 
     /**
-     * Retrieve the GrBackendFormat for a given SkImage::CompressionType. This is
+     * Retrieve the GrBackendFormat for a given SkTextureCompressionType. This is
      * guaranteed to match the backend format used by the following
      * createCompressedBackendTexture methods that take a CompressionType.
      *
@@ -700,7 +702,7 @@ public:
                                                     GrGpuFinishedContext finishedContext = nullptr);
 
     GrBackendTexture createCompressedBackendTexture(int width, int height,
-                                                    SkImage::CompressionType,
+                                                    SkTextureCompressionType,
                                                     const SkColor4f& color,
                                                     GrMipmapped,
                                                     GrProtected = GrProtected::kNo,
@@ -728,7 +730,7 @@ public:
                                                     GrGpuFinishedContext finishedContext = nullptr);
 
     GrBackendTexture createCompressedBackendTexture(int width, int height,
-                                                    SkImage::CompressionType,
+                                                    SkTextureCompressionType,
                                                     const void* data, size_t dataSize,
                                                     GrMipmapped,
                                                     GrProtected = GrProtected::kNo,
@@ -871,6 +873,28 @@ private:
     // check in the call to know that it is safe to execute this. The shouldExecuteWhileAbandoned
     // bool is used for this signal.
     void syncAllOutstandingGpuWork(bool shouldExecuteWhileAbandoned);
+
+    // This delete callback needs to be the first thing on the GrDirectContext so that it is the
+    // last thing destroyed. The callback may signal the client to clean up things that may need
+    // to survive the lifetime of some of the other objects on the GrDirectCotnext. So make sure
+    // we don't call it until all else has been destroyed.
+    class DeleteCallbackHelper {
+    public:
+        DeleteCallbackHelper(GrDirectContextDestroyedContext context,
+                             GrDirectContextDestroyedProc proc)
+                : fContext(context), fProc(proc) {}
+
+        ~DeleteCallbackHelper() {
+            if (fProc) {
+                fProc(fContext);
+            }
+        }
+
+    private:
+        GrDirectContextDestroyedContext fContext;
+        GrDirectContextDestroyedProc fProc;
+    };
+    std::unique_ptr<DeleteCallbackHelper> fDeleteCallbackHelper;
 
     const DirectContextID                   fDirectContextID;
     // fTaskGroup must appear before anything that uses it (e.g. fGpu), so that it is destroyed

@@ -7,6 +7,7 @@
 
 #include "include/gpu/graphite/BackendTexture.h"
 
+#include "include/core/SkCanvas.h"
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkSurface.h"
@@ -184,9 +185,9 @@ void setup_test_context(Context* context,
     testCtx->fRecorder = context->makeRecorder();
 
     TextureInfo textureInfo = caps->getDefaultSampledTextureInfo(kRGBA_8888_SkColorType,
-                                                                 Mipmapped::kNo,
+                                                                 skgpu::Mipmapped::kNo,
                                                                  skgpu::Protected::kNo,
-                                                                 Renderable::kYes);
+                                                                 skgpu::Renderable::kYes);
 
     if (invalidBackendTex) {
         // Having invalid backend textures will invalidate all the fulfill calls

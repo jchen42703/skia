@@ -35,7 +35,7 @@
 #include "include/effects/SkGradientShader.h"
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkShaderMaskFilter.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "src/core/SkLineClipper.h"
 #include "tools/Resources.h"
 #include "tools/ToolUtils.h"
@@ -45,8 +45,10 @@
 #include <memory>
 #include <utility>
 
+using namespace skia_private;
+
 class ClipTileRenderer;
-using ClipTileRendererArray = SkTArray<sk_sp<ClipTileRenderer>>;
+using ClipTileRendererArray = TArray<sk_sp<ClipTileRenderer>>;
 
 // This GM mimics the draw calls used by complex compositors that focus on drawing rectangles
 // and quadrilaterals with per-edge AA, with complex images, effects, and seamless tiling.
@@ -453,7 +455,7 @@ protected:
         static constexpr SkScalar kBannerWidth = 120.f;
         static constexpr SkScalar kOffset = 15.f;
 
-        SkTArray<int> drawCounts(fRenderers.size());
+        TArray<int> drawCounts(fRenderers.size());
         drawCounts.push_back_n(fRenderers.size(), 0);
 
         canvas->save();
@@ -497,14 +499,14 @@ protected:
 private:
     std::function<ClipTileRendererArray()> fMakeRendererFn;
     ClipTileRendererArray fRenderers;
-    SkTArray<SkMatrix> fMatrices;
-    SkTArray<SkString> fMatrixNames;
+    TArray<SkMatrix> fMatrices;
+    TArray<SkString> fMatrixNames;
 
     SkString fName;
 
     void configureMatrices() {
-        fMatrices.reset();
-        fMatrixNames.reset();
+        fMatrices.clear();
+        fMatrixNames.clear();
         fMatrices.push_back_n(kMatrixCount);
 
         // Identity
@@ -782,9 +784,9 @@ private:
     bool fResetEachQuad;
     int fTransformBatchCount;
 
-    SkTArray<SkPoint> fDstClips;
-    SkTArray<SkMatrix> fPreViewMatrices;
-    SkTArray<SkCanvas::ImageSetEntry> fSetEntries;
+    TArray<SkPoint> fDstClips;
+    TArray<SkMatrix> fPreViewMatrices;
+    TArray<SkCanvas::ImageSetEntry> fSetEntries;
 
     SkMatrix fBaseCTM;
     int fBatchCount;
@@ -877,9 +879,9 @@ private:
                 &paint, SkCanvas::kFast_SrcRectConstraint);
 
         // Reset for next tile
-        fDstClips.reset();
-        fPreViewMatrices.reset();
-        fSetEntries.reset();
+        fDstClips.clear();
+        fPreViewMatrices.clear();
+        fSetEntries.clear();
         fBatchCount = 0;
 
         return 1;
@@ -947,8 +949,8 @@ private:
     // The last accessed SkImage from fYUVData, held here for easy access by drawTile
     sk_sp<SkImage> fImage;
 
-    SkTArray<SkPoint> fDstClips;
-    SkTArray<SkCanvas::ImageSetEntry> fSetEntries;
+    TArray<SkPoint> fDstClips;
+    TArray<SkCanvas::ImageSetEntry> fSetEntries;
 
     YUVTextureSetRenderer(sk_sp<SkData> jpegData)
             : fYUVData(sk_gpu_test::LazyYUVImage::Make(std::move(jpegData)))
@@ -979,8 +981,8 @@ private:
                 SkCanvas::kFast_SrcRectConstraint);
 
         // Reset for next tile
-        fDstClips.reset();
-        fSetEntries.reset();
+        fDstClips.clear();
+        fSetEntries.clear();
 
         return 1;
     }

@@ -9,7 +9,7 @@
 #define SkBlenderBase_DEFINED
 
 #include "include/core/SkBlender.h"
-#include "src/core/SkArenaAlloc.h"
+#include "src/base/SkArenaAlloc.h"
 #include "src/core/SkVM.h"
 
 #include <optional>
@@ -18,8 +18,10 @@ struct GrFPArgs;
 class GrFragmentProcessor;
 class SkColorInfo;
 class SkRuntimeEffect;
+struct SkStageRec;
 
 namespace skgpu::graphite {
+enum class DstColorType;
 class KeyContext;
 class PaintParamsKeyBuilder;
 class PipelineDataGatherer;
@@ -38,6 +40,9 @@ public:
      */
     virtual std::optional<SkBlendMode> asBlendMode() const { return {}; }
 
+    SK_WARN_UNUSED_RESULT
+    virtual bool appendStages(const SkStageRec& rec) const = 0;
+
     /** Creates the blend program in SkVM. */
     SK_WARN_UNUSED_RESULT
     skvm::Color program(skvm::Builder* p, skvm::Color src, skvm::Color dst,
@@ -46,7 +51,7 @@ public:
         return this->onProgram(p, src, dst, colorInfo, uniforms, alloc);
     }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     /**
      * Returns a GrFragmentProcessor that implements this blend for the GPU backend.
      * The GrFragmentProcessor expects premultiplied inputs and returns a premultiplied output.
@@ -59,17 +64,17 @@ public:
 
     virtual SkRuntimeEffect* asRuntimeEffect() const { return nullptr; }
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     /**
      * TODO: Make pure virtual.
-     * primitiveColorBlender = true when blending the result of the paint evaluation with a
-     * primitive color (which is supplied by certain geometries). primitiveColorBlender = false when
-     * blending the result of the paint evaluation with the back buffer.
+     * dstColorType = kPrimitive when blending the result of the paint evaluation with a primitive
+     * color (which is supplied by certain geometries). dstColorType = kSurface when blending the
+     * result of the paint evaluation with the back buffer.
      */
     virtual void addToKey(const skgpu::graphite::KeyContext&,
                           skgpu::graphite::PaintParamsKeyBuilder*,
                           skgpu::graphite::PipelineDataGatherer*,
-                          bool primitiveColorBlender) const;
+                          skgpu::graphite::DstColorType dstColorType) const;
 #endif
 
     static SkFlattenable::Type GetFlattenableType() { return kSkBlender_Type; }

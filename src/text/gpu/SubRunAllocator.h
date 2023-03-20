@@ -8,10 +8,10 @@
 #ifndef sktext_gpu_SubRunAllocator_DEFINED
 #define sktext_gpu_SubRunAllocator_DEFINED
 
-#include "include/core/SkMath.h"
 #include "include/core/SkSpan.h"
-#include "include/private/SkTemplates.h"
-#include "src/core/SkArenaAlloc.h"
+#include "include/private/base/SkMath.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/base/SkArenaAlloc.h"
 
 #include <algorithm>
 #include <climits>
@@ -255,6 +255,18 @@ public:
         return reinterpret_cast<T*>(fAlloc.template allocateBytesFor<T>(n));
     }
 
+    template<typename T>
+    SkSpan<T> makePODSpan(SkSpan<const T> s) {
+        static_assert(HasNoDestructor<T>, "This is not POD. Use makeUniqueArray.");
+        if (s.empty()) {
+            return SkSpan<T>{};
+        }
+
+        T* result = this->makePODArray<T>(SkTo<int>(s.size()));
+        memcpy(result, s.data(), s.size_bytes());
+        return {result, s.size()};
+    }
+
     template<typename T, typename Src, typename Map>
     SkSpan<T> makePODArray(const Src& src, Map map) {
         static_assert(HasNoDestructor<T>, "This is not POD. Use makeUniqueArray.");
@@ -284,6 +296,17 @@ public:
             new (&array[i]) T(initializer(i));
         }
         return std::unique_ptr<T[], ArrayDestroyer>{array, ArrayDestroyer{n}};
+    }
+
+    template<typename T, typename U, typename Map>
+    std::unique_ptr<T[], ArrayDestroyer> makeUniqueArray(SkSpan<const U> src, Map map) {
+        static_assert(!HasNoDestructor<T>, "This is POD. Use makePODArray.");
+        int count = SkCount(src);
+        T* array = reinterpret_cast<T*>(fAlloc.template allocateBytesFor<T>(src.size()));
+        for (int i = 0; i < count; ++i) {
+            new (&array[i]) T(map(src[i]));
+        }
+        return std::unique_ptr<T[], ArrayDestroyer>{array, ArrayDestroyer{count}};
     }
 
     void* alignedBytes(int size, int alignment);

@@ -8,10 +8,10 @@
 #ifndef skgpu_graphite_VulkanCaps_DEFINED
 #define skgpu_graphite_VulkanCaps_DEFINED
 
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "src/gpu/graphite/Caps.h"
 #include "src/gpu/vk/VulkanInterface.h"
-#include "src/gpu/vk/VulkanUtils.h"
+#include "src/gpu/vk/VulkanUtilsPriv.h"
 
 namespace skgpu::graphite {
 struct ContextOptions;
@@ -41,6 +41,8 @@ public:
                                       const RenderPassDesc&) const override { return {}; }
     UniqueKey makeComputePipelineKey(const ComputePipelineDesc&) const override { return {}; }
 
+    uint32_t channelMask(const TextureInfo&) const override;
+
     bool isRenderable(const TextureInfo&) const override { return false; }
 
     void buildKeyForTexture(SkISize dimensions,
@@ -49,8 +51,23 @@ public:
                             Shareable,
                             GraphiteResourceKey*) const override {}
 
+    size_t bytesPerPixel(const TextureInfo&) const override;
+
     bool shouldAlwaysUseDedicatedImageMemory() const {
         return fShouldAlwaysUseDedicatedImageMemory;
+    }
+
+    // Returns whether a pure GPU accessible buffer is more performant to read than a buffer that is
+    // also host visible. If so then in some cases we may prefer the cost of doing a copy to the
+    // buffer. This typically would only be the case for buffers that are written once and read
+    // many times on the gpu.
+    bool gpuOnlyBuffersMorePerformant() const { return fGpuOnlyBuffersMorePerformant; }
+
+    // For our CPU write and GPU read buffers (vertex, uniform, etc.), we should keep these buffers
+    // persistently mapped. In general, the answer will be yes. The main case where we don't do this
+    // is when using special memory that is DEVICE_LOCAL and HOST_VISIBLE on discrete GPUs.
+    bool shouldPersistentlyMapCpuToGpuBuffers() const {
+        return fShouldPersistentlyMapCpuToGpuBuffers;
     }
 
 private:
@@ -84,8 +101,6 @@ private:
     }
 
     bool onIsTexturable(const TextureInfo&) const override { return false; }
-
-    size_t getTransferBufferAlignment(size_t bytesPerPixel) const override { return 0; }
 
     bool supportsWritePixels(const TextureInfo&) const override { return false; }
     bool supportsReadPixels(const TextureInfo&) const override { return false; }
@@ -186,11 +201,11 @@ private:
     // Various bools to define whether certain Vulkan features are supported.
     bool fSupportsMemorylessAttachments = false;
     bool fSupportsYcbcrConversion = false; // TODO: Determine & assign real value.
-
     bool fShouldAlwaysUseDedicatedImageMemory = false;
+    bool fGpuOnlyBuffersMorePerformant = false;
+    bool fShouldPersistentlyMapCpuToGpuBuffers = true;
 };
 
 } // namespace skgpu::graphite
 
 #endif // skgpu_graphite_VulkanCaps_DEFINED
-

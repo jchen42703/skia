@@ -7,7 +7,7 @@
 
 #include "include/core/SkTypes.h"
 
-#if SK_SUPPORT_GPU && defined(SK_VULKAN)
+#if defined(SK_GANESH) && defined(SK_VULKAN)
 #include "include/core/SkAlphaType.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColorSpace.h"
@@ -17,6 +17,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
 #include "include/gpu/GrTypes.h"
@@ -75,7 +76,8 @@ DEF_GANESH_TEST_FOR_VULKAN_CONTEXT(VkYCbcrSampler_DrawImageWithYcbcrSampler,
     }
 
     sk_sp<SkSurface> surface = SkSurface::MakeRenderTarget(
-            testHelper.directContext(), SkBudgeted::kNo,
+            testHelper.directContext(),
+            skgpu::Budgeted::kNo,
             SkImageInfo::Make(kImageWidth, kImageHeight, kN32_SkColorType, kPremul_SkAlphaType));
     if (!surface) {
         ERRORF(reporter, "Failed to create target SkSurface");
@@ -159,4 +161,4 @@ DEF_GANESH_TEST_FOR_VULKAN_CONTEXT(VkYCbcrSampler_NoYcbcrSurface,
     }
 }
 
-#endif  // SK_SUPPORT_GPU && defined(SK_VULKAN)
+#endif  // defined(SK_GANESH) && defined(SK_VULKAN)

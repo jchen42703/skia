@@ -8,10 +8,12 @@
 #include "src/gpu/ganesh/mtl/GrMtlGpu.h"
 
 #include "include/core/SkColorSpace.h"
+#include "include/core/SkTextureCompressionType.h"
+#include "include/gpu/GpuTypes.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/base/SkMathPriv.h"
 #include "src/core/SkCompressedDataUtils.h"
 #include "src/core/SkConvertPixels.h"
-#include "src/core/SkMathPriv.h"
 #include "src/core/SkMipmap.h"
 #include "src/gpu/ganesh/GrBackendUtils.h"
 #include "src/gpu/ganesh/GrDataUtils.h"
@@ -29,6 +31,7 @@
 #include "src/gpu/ganesh/mtl/GrMtlTexture.h"
 #include "src/gpu/ganesh/mtl/GrMtlTextureRenderTarget.h"
 #include "src/gpu/ganesh/mtl/GrMtlUtil.h"
+#include "src/gpu/mtl/MtlUtilsPriv.h"
 
 #import <simd/simd.h>
 
@@ -536,7 +539,7 @@ sk_sp<GrAttachment> GrMtlGpu::makeMSAAAttachment(SkISize dimensions,
 
     MTLPixelFormat pixelFormat = (MTLPixelFormat) format.asMtlFormat();
     SkASSERT(pixelFormat != MTLPixelFormatInvalid);
-    SkASSERT(!GrMtlFormatIsCompressed(pixelFormat));
+    SkASSERT(!skgpu::MtlFormatIsCompressed(pixelFormat));
     SkASSERT(this->mtlCaps().isFormatRenderable(pixelFormat, numSamples));
 
     fStats.incMSAAAttachmentCreates();
@@ -547,7 +550,7 @@ sk_sp<GrTexture> GrMtlGpu::onCreateTexture(SkISize dimensions,
                                            const GrBackendFormat& format,
                                            GrRenderable renderable,
                                            int renderTargetSampleCnt,
-                                           SkBudgeted budgeted,
+                                           skgpu::Budgeted budgeted,
                                            GrProtected isProtected,
                                            int mipLevelCount,
                                            uint32_t levelClearMask,
@@ -579,7 +582,9 @@ sk_sp<GrTexture> GrMtlGpu::onCreateTexture(SkISize dimensions,
     }
 
     if (levelClearMask) {
-        this->clearTexture(tex.get(), GrMtlFormatBytesPerBlock(mtlPixelFormat), levelClearMask);
+        this->clearTexture(tex.get(),
+                           skgpu::MtlFormatBytesPerBlock(mtlPixelFormat),
+                           levelClearMask);
     }
 
     return std::move(tex);
@@ -587,7 +592,7 @@ sk_sp<GrTexture> GrMtlGpu::onCreateTexture(SkISize dimensions,
 
 sk_sp<GrTexture> GrMtlGpu::onCreateCompressedTexture(SkISize dimensions,
                                                      const GrBackendFormat& format,
-                                                     SkBudgeted budgeted,
+                                                     skgpu::Budgeted budgeted,
                                                      GrMipmapped mipmapped,
                                                      GrProtected isProtected,
                                                      const void* data, size_t dataSize) {
@@ -627,7 +632,7 @@ sk_sp<GrTexture> GrMtlGpu::onCreateCompressedTexture(SkISize dimensions,
     SkASSERT(mtlTexture);
 
     auto compressionType = GrBackendFormatToCompressionType(format);
-    SkASSERT(compressionType != SkImage::CompressionType::kNone);
+    SkASSERT(compressionType != SkTextureCompressionType::kNone);
 
     SkTArray<size_t> individualMipOffsets(numMipLevels);
     SkDEBUGCODE(size_t combinedBufferSize =) SkCompressedDataSize(compressionType, dimensions,
@@ -933,7 +938,7 @@ bool GrMtlGpu::onClearBackendTexture(const GrBackendTexture& backendTexture,
     const MTLPixelFormat mtlFormat = mtlTexture.pixelFormat;
 
     // Create a transfer buffer and fill with data.
-    size_t bytesPerPixel = GrMtlFormatBytesPerBlock(mtlFormat);
+    size_t bytesPerPixel = skgpu::MtlFormatBytesPerBlock(mtlFormat);
     size_t combinedBufferSize;
 
     // Reuse the same buffer for all levels. Should be ok since we made the row bytes tight.
@@ -1036,9 +1041,9 @@ bool GrMtlGpu::onUpdateCompressedBackendTexture(const GrBackendTexture& backendT
     int numMipLevels = mtlTexture.mipmapLevelCount;
     GrMipmapped mipmapped = numMipLevels > 1 ? GrMipmapped::kYes : GrMipmapped::kNo;
 
-    SkImage::CompressionType compression =
+    SkTextureCompressionType compression =
             GrBackendFormatToCompressionType(backendTexture.getBackendFormat());
-    SkASSERT(compression != SkImage::CompressionType::kNone);
+    SkASSERT(compression != SkTextureCompressionType::kNone);
 
     // Create a transfer buffer and fill with data.
     SkSTArray<16, size_t> individualMipOffsets;

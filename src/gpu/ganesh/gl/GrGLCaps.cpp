@@ -10,10 +10,11 @@
 #include <algorithm>
 #include <memory>
 
+#include "include/core/SkTextureCompressionType.h"
 #include "include/gpu/GrContextOptions.h"
+#include "src/base/SkMathPriv.h"
+#include "src/base/SkTSearch.h"
 #include "src/core/SkCompressedDataUtils.h"
-#include "src/core/SkMathPriv.h"
-#include "src/core/SkTSearch.h"
 #include "src/gpu/ganesh/GrBackendUtils.h"
 #include "src/gpu/ganesh/GrProgramDesc.h"
 #include "src/gpu/ganesh/GrRenderTargetProxy.h"
@@ -65,6 +66,7 @@ GrGLCaps::GrGLCaps(const GrContextOptions& contextOptions,
     fBindTexture0WhenChangingTextureFBOMultisampleCount = false;
     fRebindColorAttachmentAfterCheckFramebufferStatus = false;
     fFlushBeforeWritePixels = false;
+    fDisableScalingCopyAsDraws = false;
     fProgramBinarySupport = false;
     fProgramParameterSupport = false;
     fSamplerObjectSupport = false;
@@ -2488,7 +2490,7 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
         info.fInternalFormatForRenderbuffer = GR_GL_RGBX8;
         info.fDefaultExternalFormat = GR_GL_RGB;
         info.fDefaultExternalType = GR_GL_UNSIGNED_BYTE;
-        info.fDefaultColorType = GrColorType::kRGB_888x;
+        info.fDefaultColorType = GrColorType::kRGB_888;
 
         bool supportsSizedRGBX = false;
         // The GL_ANGLE_rgbx_internal_format extension only adds the sized GL_RGBX8 type and does
@@ -2523,22 +2525,22 @@ void GrGLCaps::initFormatTable(const GrGLContextInfo& ctxInfo, const GrGLInterfa
                 ctInfo.fExternalIOFormats = std::make_unique<ColorTypeInfo::ExternalIOFormats[]>(
                         ctInfo.fExternalIOFormatCount);
                 int ioIdx = 0;
+                // Format: RGBX8, Surface: kRGB_888x, Data: kRGB_888
+                {
+                    auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
+                    ioFormat.fColorType = GrColorType::kRGB_888;
+                    ioFormat.fExternalType = GR_GL_UNSIGNED_BYTE;
+                    ioFormat.fExternalTexImageFormat = GR_GL_RGB;
+                    ioFormat.fExternalReadFormat = 0;
+                }
+
                 // Format: RGBX8, Surface: kRGB_888x, Data: kRGB_888x
                 {
                     auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
                     ioFormat.fColorType = GrColorType::kRGB_888x;
                     ioFormat.fExternalType = GR_GL_UNSIGNED_BYTE;
-                    ioFormat.fExternalTexImageFormat = GR_GL_RGBA;
-                    ioFormat.fExternalReadFormat = 0;
-                }
-
-                // Format: RGBX8, Surface: kRGB_888x, Data: kRGBA_8888
-                {
-                    auto& ioFormat = ctInfo.fExternalIOFormats[ioIdx++];
-                    ioFormat.fColorType = GrColorType::kRGBA_8888;
-                    ioFormat.fExternalType = GR_GL_UNSIGNED_BYTE;
                     ioFormat.fExternalTexImageFormat = 0;
-                    ioFormat.fExternalReadFormat = GR_GL_RGBA;
+                    ioFormat.fExternalReadFormat = GR_GL_RGBX8;
                 }
             }
         }
@@ -3591,8 +3593,10 @@ bool GrGLCaps::canCopyAsBlit(GrGLFormat dstFormat, int dstSampleCnt,
     return true;
 }
 
-bool GrGLCaps::canCopyAsDraw(GrGLFormat dstFormat, bool srcIsTexturable) const {
-    return this->isFormatRenderable(dstFormat, 1) && srcIsTexturable;
+bool GrGLCaps::canCopyAsDraw(GrGLFormat dstFormat, bool srcIsTexturable, bool scalingCopy) const {
+    return this->isFormatRenderable(dstFormat, 1) &&
+           srcIsTexturable &&
+           !(fDisableScalingCopyAsDraws && scalingCopy);
 }
 
 static bool has_msaa_render_buffer(const GrSurfaceProxy* surf, const GrGLCaps& glCaps) {
@@ -3641,7 +3645,8 @@ bool GrGLCaps::onCanCopySurface(const GrSurfaceProxy* dst, const SkIRect& dstRec
     auto dstFormat = dst->backendFormat().asGLFormat();
     auto srcFormat = src->backendFormat().asGLFormat();
     // Only copyAsBlit() and copyAsDraw() can handle scaling between src and dst.
-    if (srcRect.size() == dstRect.size() &&
+    const bool scalingCopy = srcRect.size() != dstRect.size();
+    if (!scalingCopy &&
         this->canCopyTexSubImage(dstFormat, has_msaa_render_buffer(dst, *this), dstTexTypePtr,
                                  srcFormat, has_msaa_render_buffer(src, *this), srcTexTypePtr)) {
         return true;
@@ -3649,7 +3654,7 @@ bool GrGLCaps::onCanCopySurface(const GrSurfaceProxy* dst, const SkIRect& dstRec
     return this->canCopyAsBlit(dstFormat, dstSampleCnt, dstTexTypePtr, srcFormat, srcSampleCnt,
                                srcTexTypePtr, src->getBoundsRect(), src->priv().isExact(), srcRect,
                                dstRect) ||
-           this->canCopyAsDraw(dstFormat, SkToBool(srcTex));
+           this->canCopyAsDraw(dstFormat, SkToBool(srcTex), scalingCopy);
 }
 
 GrCaps::DstCopyRestrictions GrGLCaps::getDstCopyRestrictions(const GrRenderTargetProxy* src,
@@ -4446,11 +4451,6 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         fAvoidReorderingRenderTasks = true;
     }
 
-    // http://skbug.com/11965
-    if (ctxInfo.renderer() == GrGLRenderer::kGoogleSwiftShader) {
-        fShaderCaps->fVertexIDSupport = false;
-    }
-
     // http://crbug.com/1197152
     // http://b/187364475
     // We could limit this < 1.13 on ChromeOS but we don't really have a good way to detect
@@ -4554,6 +4554,16 @@ void GrGLCaps::applyDriverCorrectnessWorkarounds(const GrGLContextInfo& ctxInfo,
         (ctxInfo.webglRenderer() == GrGLRenderer::kAdreno4xx_other ||
          ctxInfo.webglRenderer() == GrGLRenderer::kAdreno630)) {
         fFlushBeforeWritePixels = true;
+    }
+
+    // crbug.com/1395777
+    // There appears to be a driver bug in GLSL program linking on Mali 400 and 450 devices with
+    // driver version 2.1.199xx that causes the copy-as-draw programs in GrGLGpu to fail. The crash
+    // rate increased when scaling copy support was added, so disallow scaling copy-as-draws on
+    // these devices.
+    if (ctxInfo.renderer() == GrGLRenderer::kMali4xx &&
+        ctxInfo.driverVersion() >= GR_GL_DRIVER_VER(2, 1, 19900)) {
+        fDisableScalingCopyAsDraws = true;
     }
 }
 
@@ -4664,9 +4674,9 @@ GrCaps::SupportedRead GrGLCaps::onSupportedReadPixelsColorType(
         GrColorType srcColorType, const GrBackendFormat& srcBackendFormat,
         GrColorType dstColorType) const {
 
-    SkImage::CompressionType compression = GrBackendFormatToCompressionType(srcBackendFormat);
-    if (compression != SkImage::CompressionType::kNone) {
-        return {SkCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
+    SkTextureCompressionType compression = GrBackendFormatToCompressionType(srcBackendFormat);
+    if (compression != SkTextureCompressionType::kNone) {
+        return {SkTextureCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
                                                        : GrColorType::kRGBA_8888,
                 0};
     }
@@ -4911,11 +4921,11 @@ GrBackendFormat GrGLCaps::onGetDefaultBackendFormat(GrColorType ct) const {
 }
 
 GrBackendFormat GrGLCaps::getBackendFormatFromCompressionType(
-        SkImage::CompressionType compressionType) const {
+        SkTextureCompressionType compressionType) const {
     switch (compressionType) {
-        case SkImage::CompressionType::kNone:
+        case SkTextureCompressionType::kNone:
             return {};
-        case SkImage::CompressionType::kETC2_RGB8_UNORM:
+        case SkTextureCompressionType::kETC2_RGB8_UNORM:
             // if ETC2 is available default to that format
             if (this->isFormatTexturable(GrGLFormat::kCOMPRESSED_RGB8_ETC2)) {
                 return GrBackendFormat::MakeGL(GR_GL_COMPRESSED_RGB8_ETC2, GR_GL_TEXTURE_2D);
@@ -4924,13 +4934,13 @@ GrBackendFormat GrGLCaps::getBackendFormatFromCompressionType(
                 return GrBackendFormat::MakeGL(GR_GL_COMPRESSED_ETC1_RGB8, GR_GL_TEXTURE_2D);
             }
             return {};
-        case SkImage::CompressionType::kBC1_RGB8_UNORM:
+        case SkTextureCompressionType::kBC1_RGB8_UNORM:
             if (this->isFormatTexturable(GrGLFormat::kCOMPRESSED_RGB8_BC1)) {
                 return GrBackendFormat::MakeGL(GR_GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
                                                GR_GL_TEXTURE_2D);
             }
             return {};
-        case SkImage::CompressionType::kBC1_RGBA8_UNORM:
+        case SkTextureCompressionType::kBC1_RGBA8_UNORM:
             if (this->isFormatTexturable(GrGLFormat::kCOMPRESSED_RGBA8_BC1)) {
                 return GrBackendFormat::MakeGL(GR_GL_COMPRESSED_RGBA_S3TC_DXT1_EXT,
                                                GR_GL_TEXTURE_2D);

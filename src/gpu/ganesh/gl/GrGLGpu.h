@@ -9,7 +9,7 @@
 #define GrGLGpu_DEFINED
 
 #include "include/core/SkTypes.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "src/core/SkLRUCache.h"
 #include "src/gpu/ganesh/GrFinishCallbacks.h"
 #include "src/gpu/ganesh/GrGpu.h"
@@ -28,6 +28,7 @@
 class GrGLBuffer;
 class GrGLOpsRenderPass;
 class GrPipeline;
+enum class SkTextureCompressionType;
 
 namespace skgpu {
 class Swizzle;
@@ -256,17 +257,18 @@ private:
                                      const GrBackendFormat&,
                                      GrRenderable,
                                      int renderTargetSampleCnt,
-                                     SkBudgeted,
+                                     skgpu::Budgeted,
                                      GrProtected,
                                      int mipLevelCount,
                                      uint32_t levelClearMask,
                                      std::string_view label) override;
     sk_sp<GrTexture> onCreateCompressedTexture(SkISize dimensions,
                                                const GrBackendFormat&,
-                                               SkBudgeted,
+                                               skgpu::Budgeted,
                                                GrMipmapped,
                                                GrProtected,
-                                               const void* data, size_t dataSize) override;
+                                               const void* data,
+                                               size_t dataSize) override;
 
     sk_sp<GrGpuBuffer> onCreateBuffer(size_t size, GrGpuBufferType, GrAccessPattern) override;
 
@@ -312,7 +314,7 @@ private:
                            std::string_view label);
 
     GrGLuint createCompressedTexture2D(SkISize dimensions,
-                                       SkImage::CompressionType compression,
+                                       SkTextureCompressionType compression,
                                        GrGLFormat,
                                        GrMipmapped,
                                        GrGLTextureParameters::SamplerOverriddenState*);
@@ -508,7 +510,7 @@ private:
 
     // Helper for onCreateCompressedTexture. Compressed textures are read-only so we only use this
     // to populate a new texture. Returns false if we failed to create and upload the texture.
-    bool uploadCompressedTexData(SkImage::CompressionType compressionType,
+    bool uploadCompressedTexData(SkTextureCompressionType compressionType,
                                  GrGLFormat,
                                  SkISize dimensions,
                                  GrMipmapped,
@@ -756,7 +758,7 @@ private:
         };
         TargetBinding fTargetBindings[3];
     };
-    SkAutoTArray<TextureUnitBindings> fHWTextureUnitBindings;
+    skia_private::AutoTArray<TextureUnitBindings> fHWTextureUnitBindings;
 
     GrGLfloat fHWClearColor[4];
 

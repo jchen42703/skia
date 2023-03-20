@@ -24,7 +24,7 @@
 #include "include/core/SkUnPreMultiply.h"
 #include "include/effects/SkImageFilters.h"
 #include "include/private/SkSLSampleUsage.h"
-#include "include/private/SkSafe32.h"
+#include "include/private/base/SkSafe32.h"
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkSpecialImage.h"
@@ -34,12 +34,14 @@
 #include <memory>
 #include <utility>
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/GrRecordingContext.h"
 #include "include/gpu/GrTypes.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrColorSpaceXform.h"
 #include "src/gpu/ganesh/GrFragmentProcessor.h"
@@ -59,7 +61,7 @@ struct GrShaderCaps;
 #endif
 
 #if GR_TEST_UTILS
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #endif
 
 namespace {
@@ -178,7 +180,7 @@ void SkDisplacementMapImageFilter::flatten(SkWriteBuffer& buffer) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 
 namespace {
 
@@ -312,7 +314,7 @@ sk_sp<SkSpecialImage> SkDisplacementMapImageFilter::onFilterImage(const Context&
     SkVector scale = SkVector::Make(fScale, fScale);
     ctx.ctm().mapVectors(&scale, 1);
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     if (ctx.gpuBacked()) {
         auto rContext = ctx.getContext();
 
@@ -429,7 +431,7 @@ SkIRect SkDisplacementMapImageFilter::onFilterBounds(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 class GrDisplacementMapEffect::Impl : public ProgramImpl {
 public:
     void emitCode(EmitArgs&) override;

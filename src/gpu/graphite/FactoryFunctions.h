@@ -8,10 +8,6 @@
 #ifndef skgpu_graphite_FactoryFunctions_DEFINED
 #define skgpu_graphite_FactoryFunctions_DEFINED
 
-#include "include/core/SkTypes.h"
-
-#ifdef SK_ENABLE_PRECOMPILE
-
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSpan.h"
@@ -49,6 +45,14 @@ public:
     static sk_sp<PrecompileShader> TwoPointConicalGradient();
     static sk_sp<PrecompileShader> SweepGradient();
 
+    // TODO: hide these? The issue here is that, in the main Skia API, these are only accessed
+    // via makeWithLocalMatrix and makeWithColorFilter. However, in the combination API, clients
+    // may want to create a set of these (i.e., pass SkSpans to the factory functions vs
+    // just single options).
+    static sk_sp<PrecompileShader> LocalMatrix(sk_sp<PrecompileShader> wrapped);
+    static sk_sp<PrecompileShader> ColorFilter(sk_sp<PrecompileShader>,
+                                               sk_sp<PrecompileColorFilter>);
+
 private:
     PrecompileShaders() = delete;
 };
@@ -70,8 +74,16 @@ private:
 // This will move to be beside SkColorFilters in include/core/SkColorFilter.h
 class PrecompileColorFilters {
 public:
+    // This encompasses both variants of SkColorFilters::Blend
+    static sk_sp<PrecompileColorFilter> Blend();
+
+    // This encompasses both variants of SkColorFilters::Matrix
     static sk_sp<PrecompileColorFilter> Matrix();
-    // TODO: Compose, Blend, HSLAMatrix, LinearToSRGBGamma, SRGBToLinearGamma, Lerp
+
+    // This encompasses both variants of SkColorFilters::HSLAMatrix
+    static sk_sp<PrecompileColorFilter> HSLAMatrix();
+
+    // TODO: Compose, LinearToSRGBGamma/SRGBToLinearGamma, Lerp, Table(ARGB), Lighting
 
 private:
     PrecompileColorFilters() = delete;
@@ -138,7 +150,5 @@ sk_sp<PrecompileBlender> MakePrecompileBlender(
         SkSpan<const PrecompileChildOptions> childOptions = {});
 
 } // namespace skgpu::graphite
-
-#endif // SK_ENABLE_PRECOMPILE
 
 #endif // skgpu_graphite_FactoryFunctions_DEFINED

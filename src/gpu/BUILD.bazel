@@ -1,4 +1,5 @@
-load("//bazel:macros.bzl", "bool_flag", "exports_files_legacy", "select_multi", "selects", "skia_cc_deps", "skia_filegroup", "split_srcs_and_hdrs", "string_flag_with_values")
+load("//bazel:skia_rules.bzl", "exports_files_legacy", "select_multi", "skia_cc_deps", "skia_filegroup", "split_srcs_and_hdrs")
+load("//bazel:flags.bzl", "bool_flag", "selects", "string_flag_with_values")
 
 licenses(["notice"])
 
@@ -22,6 +23,7 @@ SHARED_FILES = [
     "RefCntedCallback.h",
     "ResourceKey.cpp",
     "ResourceKey.h",
+    "SkBackingFit.h",
     "Swizzle.cpp",
     "Swizzle.h",
 ]
@@ -99,10 +101,12 @@ skia_filegroup(
         ":shared_srcs",
         "//src/gpu/ganesh:srcs",
         "//src/gpu/tessellate:srcs",
-    ] + select({
-        "//src/gpu:vulkan_backend": ["//src/gpu/vk:srcs"],
-        "//conditions:default": [],
-    }),
+    ] + select_multi(
+        {
+            "//src/gpu:dawn_backend": ["//src/gpu/dawn:srcs"],
+            "//src/gpu:vulkan_backend": ["//src/gpu/vk:srcs"],
+        },
+    ),
     visibility = ["//src:__pkg__"],
 )
 
@@ -113,10 +117,12 @@ skia_filegroup(
         ":shared_hdrs",
         "//src/gpu/ganesh:private_hdrs",
         "//src/gpu/tessellate:private_hdrs",
-    ] + select({
-        "//src/gpu:vulkan_backend": ["//src/gpu/vk:private_hdrs"],
-        "//conditions:default": [],
-    }),
+    ] + select_multi(
+        {
+            "//src/gpu:dawn_backend": ["//src/gpu/dawn:private_hdrs"],
+            "//src/gpu:vulkan_backend": ["//src/gpu/vk:private_hdrs"],
+        },
+    ),
     visibility = ["//src:__pkg__"],
 )
 

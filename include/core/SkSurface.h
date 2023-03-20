@@ -9,41 +9,61 @@
 #define SkSurface_DEFINED
 
 #include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
 #include "include/core/SkPixmap.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/core/SkScalar.h"
 #include "include/core/SkSurfaceProps.h"
+#include "include/core/SkTypes.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/gpu/GrTypes.h"
+#else
+enum GrSurfaceOrigin: int;
+#endif
+
+#if defined(SK_GRAPHITE)
+#include "include/gpu/GpuTypes.h"
+namespace skgpu::graphite {
+class BackendTexture;
+}
 #endif
 
 #if defined(SK_BUILD_FOR_ANDROID) && __ANDROID_API__ >= 26
 #include <android/hardware_buffer.h>
+class GrDirectContext;
 #endif
 
-#if SK_SUPPORT_GPU && defined(SK_METAL)
+#if defined(SK_GANESH) && defined(SK_METAL)
 #include "include/gpu/mtl/GrMtlTypes.h"
 #endif
 
-class SkCanvas;
-class SkCapabilities;
-class SkDeferredDisplayList;
-class SkPaint;
-class SkSurfaceCharacterization;
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
 class GrBackendRenderTarget;
 class GrBackendSemaphore;
 class GrBackendTexture;
-class GrDirectContext;
 class GrRecordingContext;
-class GrRenderTarget;
-enum GrSurfaceOrigin: int;
+class SkBitmap;
+class SkCanvas;
+class SkCapabilities;
+class SkColorSpace;
+class SkDeferredDisplayList;
+class SkPaint;
+class SkSurfaceCharacterization;
+enum SkColorType : int;
+struct SkIRect;
+struct SkISize;
 
 namespace skgpu {
 class MutableTextureState;
+enum class Budgeted : bool;
 }
 
 namespace skgpu::graphite {
-class BackendTexture;
 class Recorder;
 }
 
@@ -206,7 +226,7 @@ public:
         backend API (accounting only for use of the texture by this surface). If SkSurface creation
         fails textureReleaseProc is called before this function returns.
 
-        If SK_SUPPORT_GPU is defined as zero, has no effect and returns nullptr.
+        If defined(SK_GANESH) is defined as zero, has no effect and returns nullptr.
 
         @param context             GPU context
         @param backendTexture      texture residing on GPU
@@ -241,7 +261,7 @@ public:
         backend API (accounting only for use of the render target by this surface). If SkSurface
         creation fails releaseProc is called before this function returns.
 
-        If SK_SUPPORT_GPU is defined as zero, has no effect and returns nullptr.
+        If defined(SK_GANESH) is defined as zero, has no effect and returns nullptr.
 
         @param context                  GPU context
         @param backendRenderTarget      GPU intermediate memory buffer
@@ -276,7 +296,7 @@ public:
 
         shouldCreateWithMips hints that SkImage returned by makeImageSnapshot() is mip map.
 
-        If SK_SUPPORT_GPU is defined as zero, has no effect and returns nullptr.
+        If defined(SK_GANESH) is defined as zero, has no effect and returns nullptr.
 
         @param context               GPU context
         @param imageInfo             width, height, SkColorType, SkAlphaType, SkColorSpace;
@@ -287,9 +307,11 @@ public:
         @param shouldCreateWithMips  hint that SkSurface will host mip map images
         @return                      SkSurface if all parameters are valid; otherwise, nullptr
     */
-    static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context, SkBudgeted budgeted,
+    static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context,
+                                             skgpu::Budgeted budgeted,
                                              const SkImageInfo& imageInfo,
-                                             int sampleCount, GrSurfaceOrigin surfaceOrigin,
+                                             int sampleCount,
+                                             GrSurfaceOrigin surfaceOrigin,
                                              const SkSurfaceProps* surfaceProps,
                                              bool shouldCreateWithMips = false);
 
@@ -314,10 +336,12 @@ public:
                             fonts; may be nullptr
         @return             SkSurface if all parameters are valid; otherwise, nullptr
     */
-    static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context, SkBudgeted budgeted,
-                                             const SkImageInfo& imageInfo, int sampleCount,
+    static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context,
+                                             skgpu::Budgeted budgeted,
+                                             const SkImageInfo& imageInfo,
+                                             int sampleCount,
                                              const SkSurfaceProps* surfaceProps) {
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
         return MakeRenderTarget(context, budgeted, imageInfo, sampleCount,
                                 kBottomLeft_GrSurfaceOrigin, surfaceProps);
 #else
@@ -339,9 +363,10 @@ public:
                           of raster surface; width, or height, or both, may be zero
         @return           SkSurface if all parameters are valid; otherwise, nullptr
     */
-    static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context, SkBudgeted budgeted,
+    static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context,
+                                             skgpu::Budgeted budgeted,
                                              const SkImageInfo& imageInfo) {
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
         if (!imageInfo.width() || !imageInfo.height()) {
             return nullptr;
         }
@@ -362,8 +387,7 @@ public:
     */
     static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context,
                                              const SkSurfaceCharacterization& characterization,
-                                             SkBudgeted budgeted);
-
+                                             skgpu::Budgeted budgeted);
 
 #if defined(SK_BUILD_FOR_ANDROID) && __ANDROID_API__ >= 26
     /** Private.
@@ -398,7 +422,7 @@ public:
                                                     );
 #endif
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     /**
      * In Graphite, while clients hold a ref on an SkSurface, the backing gpu object does _not_
      * count against the budget. Once an SkSurface is freed, the backing gpu object may or may
@@ -408,7 +432,7 @@ public:
     static sk_sp<SkSurface> MakeGraphite(
             skgpu::graphite::Recorder*,
             const SkImageInfo& imageInfo,
-            skgpu::graphite::Mipmapped = skgpu::graphite::Mipmapped::kNo,
+            skgpu::Mipmapped = skgpu::Mipmapped::kNo,
             const SkSurfaceProps* surfaceProps = nullptr);
 
     /**
@@ -430,9 +454,9 @@ public:
                                                            sk_sp<SkColorSpace> colorSpace,
                                                            const SkSurfaceProps* props);
 
-#endif // SK_GRAPHITE_ENABLED
+#endif // SK_GRAPHITE
 
-#if SK_SUPPORT_GPU && defined(SK_METAL)
+#if defined(SK_GANESH) && defined(SK_METAL)
     /** Creates SkSurface from CAMetalLayer.
         Returned SkSurface takes a reference on the CAMetalLayer. The ref on the layer will be
         released when the SkSurface is destroyed.
@@ -566,7 +590,7 @@ public:
      */
     skgpu::graphite::Recorder* recorder();
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     enum BackendHandleAccess {
         kFlushRead_BackendHandleAccess,    //!< back-end object is readable
         kFlushWrite_BackendHandleAccess,   //!< back-end object is writable
@@ -669,7 +693,7 @@ public:
 
     /** Returns SkImage capturing SkSurface contents. Subsequent drawing to SkSurface contents
         are not captured. SkImage allocation is accounted for if SkSurface was created with
-        SkBudgeted::kYes.
+        skgpu::Budgeted::kYes.
 
         @return  SkImage initialized with SkSurface contents
 
@@ -690,7 +714,7 @@ public:
      */
     sk_sp<SkImage> makeImageSnapshot(const SkIRect& bounds);
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
     /**
      * The 'asImage' and 'makeImageCopy' API/entry points are currently only available for
      * Graphite.
@@ -715,8 +739,7 @@ public:
     sk_sp<SkImage> asImage();
 
     sk_sp<SkImage> makeImageCopy(const SkIRect* subset = nullptr,
-                                 skgpu::graphite::Mipmapped mipmapped =
-                                                              skgpu::graphite::Mipmapped::kNo);
+                                 skgpu::Mipmapped mipmapped = skgpu::Mipmapped::kNo);
 #endif
 
     /** Draws SkSurface contents to canvas, with its top-left corner at (x, y).
@@ -993,7 +1016,7 @@ public:
         kPresent,   //!< back-end surface will be used for presenting to screen
     };
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     /** If a surface is GPU texture backed, is being drawn with MSAA, and there is a resolve
         texture, this call will insert a resolve command into the stream of gpu commands. In order
         for the resolve to actually have an effect, the work still needs to be flushed and submitted
@@ -1099,7 +1122,7 @@ public:
     */
     GrSemaphoresSubmitted flush(const GrFlushInfo& info,
                                 const skgpu::MutableTextureState* newState = nullptr);
-#endif // SK_SUPPORT_GPU
+#endif // defined(SK_GANESH)
 
     void flush();
 

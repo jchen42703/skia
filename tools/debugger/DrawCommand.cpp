@@ -32,10 +32,12 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkTypeface.h"
 #include "include/encode/SkPngEncoder.h"
-#include "include/private/SkMalloc.h"
 #include "include/private/SkShadowFlags.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkMalloc.h"
+#include "include/private/base/SkTo.h"
 #include "include/private/gpu/ganesh/GrImageContext.h"
-#include "src/core/SkAutoMalloc.h"
+#include "src/base/SkAutoMalloc.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/core/SkMaskFilterBase.h"
 #include "src/core/SkPaintDefaults.h"
@@ -54,7 +56,7 @@
 
 class GrDirectContext;
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/gpu/GrRecordingContext.h"
 #endif
 
@@ -672,7 +674,7 @@ bool DrawCommand::flatten(const SkImage&  image,
             SkImageInfo::Make(image.dimensions(), kN32_SkColorType, kPremul_SkAlphaType);
     // "cheat" for this debug tool and use image's context
     GrDirectContext* dContext = nullptr;
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     dContext = GrAsDirectContext(as_IB(&image)->context());
 #endif
     if (!image.readPixels(dContext, dstInfo, buffer.get(), rowBytes, 0, 0)) {

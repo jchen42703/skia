@@ -10,7 +10,7 @@
 #include "include/gpu/graphite/BackendTexture.h"
 #include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/Recorder.h"
-#include "include/gpu/graphite/mtl/MtlTypes.h"
+#include "include/gpu/graphite/mtl/MtlGraphiteTypes.h"
 
 #import <Metal/Metal.h>
 
@@ -25,7 +25,7 @@ DEF_GRAPHITE_TEST_FOR_METAL_CONTEXT(MtlBackendTextureTest, reporter, context) {
 
     MtlTextureInfo textureInfo;
     textureInfo.fSampleCount = 1;
-    textureInfo.fMipmapped = Mipmapped::kNo;
+    textureInfo.fMipmapped = skgpu::Mipmapped::kNo;
     textureInfo.fFormat = MTLPixelFormatRGBA8Unorm;
     textureInfo.fStorageMode = MTLStorageModePrivate;
     textureInfo.fUsage = MTLTextureUsageShaderRead;

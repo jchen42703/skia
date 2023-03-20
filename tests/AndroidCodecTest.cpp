@@ -15,6 +15,7 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
+#include "include/private/SkGainmapInfo.h"  // IWYU pragma: keep
 #include "modules/skcms/skcms.h"
 #include "tests/Test.h"
 #include "tools/Resources.h"
@@ -156,7 +157,8 @@ DEF_TEST(AndroidCodec_wide, r) {
         return;
     }
 
-    auto expected = SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3);
+    // This image has a gamut that is VERY close to sRGB, so SkColorSpace::MakeRGB snaps to sRGB.
+    auto expected = SkColorSpace::MakeSRGB();
     REPORTER_ASSERT(r, SkColorSpace::Equals(cs.get(), expected.get()));
 }
 

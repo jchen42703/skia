@@ -25,7 +25,7 @@
 #include "include/effects/SkImageFilters.h"
 #include "include/effects/SkRuntimeEffect.h"
 #include "include/private/SkSpinlock.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "src/core/SkImageFilterTypes.h"
 #include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkReadBuffer.h"
@@ -167,7 +167,7 @@ void SkRuntimeImageFilter::flatten(SkWriteBuffer& buffer) const {
     for (const SkString& name : fChildShaderNames) {
         buffer.writeString(name.c_str());
     }
-    for (size_t x = 0; x < fShaderBuilder.numChildren(); x++) {
+    for (size_t x = 0; x < fShaderBuilder.children().size(); x++) {
         buffer.writeFlattenable(fShaderBuilder.children()[x].flattenable());
     }
     fShaderBuilderLock.release();

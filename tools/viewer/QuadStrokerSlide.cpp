@@ -14,6 +14,7 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPathMeasure.h"
+#include "include/core/SkPathUtils.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRRect.h"
 #include "include/core/SkRect.h"
@@ -23,8 +24,8 @@
 #include "include/core/SkString.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTemplates.h"
 #include "include/utils/SkTextUtils.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPathPriv.h"
@@ -34,6 +35,8 @@
 #include "tools/viewer/ClickHandlerSlide.h"
 
 #include <cfloat>
+
+using namespace skia_private;
 
 class SkEvent;
 
@@ -60,7 +63,7 @@ static int getOnCurvePoints(const SkPath& path, SkPoint storage[]) {
     return count;
 }
 
-static void getContourCounts(const SkPath& path, SkTArray<int>* contourCounts) {
+static void getContourCounts(const SkPath& path, TArray<int>* contourCounts) {
     int count = 0;
     for (auto [verb, pts, w] : SkPathPriv::Iterate(path)) {
         switch (verb) {
@@ -499,7 +502,7 @@ private:
         int n = path.countPoints();
         std::unique_ptr<SkPoint[]> pts{new SkPoint[n]};
         if (show_lines && fDrawTangents) {
-            SkTArray<int> contourCounts;
+            TArray<int> contourCounts;
             getContourCounts(path, &contourCounts);
             SkPoint* ptPtr = pts.get();
             for (int i = 0; i < contourCounts.size(); ++i) {
@@ -660,7 +663,7 @@ private:
         } else {
             p.setStrokeWidth(width);
         }
-        p.getFillPath(path, &fill);
+        skpathutils::FillPathWithPaint(path, p, &fill);
         SkPath scaledFill;
         if (drawText) {
             fill.transform(matrix, &scaledFill);

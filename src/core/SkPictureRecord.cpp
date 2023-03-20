@@ -11,18 +11,20 @@
 #include "include/core/SkRSXform.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
-#include "include/private/SkTo.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkTSearch.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/core/SkDrawShadowInfo.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkSamplingPriv.h"
-#include "src/core/SkTSearch.h"
 #include "src/image/SkImage_Base.h"
 #include "src/utils/SkPatchUtils.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "include/private/chromium/Slug.h"
 #endif
+
+using namespace skia_private;
 
 #define HEAP_BLOCK_SIZE 4096
 
@@ -581,7 +583,7 @@ void SkPictureRecord::onDrawTextBlob(const SkTextBlob* blob, SkScalar x, SkScala
     this->validate(initialOffset, size);
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 void SkPictureRecord::onDrawSlug(const sktext::gpu::Slug* slug) {
     // op + slug id
     size_t size = 2 * kUInt32Size;
@@ -820,7 +822,7 @@ bool equals(SkDrawable* a, SkDrawable* b) {
 }
 
 template <typename T>
-static int find_or_append(SkTArray<sk_sp<T>>& array, T* obj) {
+static int find_or_append(TArray<sk_sp<T>>& array, T* obj) {
     for (int i = 0; i < array.size(); i++) {
         if (equals(array[i].get(), obj)) {
             return i;
@@ -936,7 +938,7 @@ void SkPictureRecord::addTextBlob(const SkTextBlob* blob) {
     this->addInt(find_or_append(fTextBlobs, blob) + 1);
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 void SkPictureRecord::addSlug(const sktext::gpu::Slug* slug) {
     // follow the convention of recording a 1-based index
     this->addInt(find_or_append(fSlugs, slug) + 1);

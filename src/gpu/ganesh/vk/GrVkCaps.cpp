@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "include/core/SkTextureCompressionType.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrContextOptions.h"
 #include "include/gpu/vk/GrVkBackendContext.h"
@@ -31,7 +32,7 @@
 #include "src/gpu/ganesh/vk/GrVkUniformHandler.h"
 #include "src/gpu/ganesh/vk/GrVkUtil.h"
 #include "src/gpu/vk/VulkanInterface.h"
-#include "src/gpu/vk/VulkanUtils.h"
+#include "src/gpu/vk/VulkanUtilsPriv.h"
 
 #ifdef SK_BUILD_FOR_ANDROID
 #include <sys/system_properties.h>
@@ -602,8 +603,16 @@ void GrVkCaps::applyDriverCorrectnessWorkarounds(const VkPhysicalDevicePropertie
 #ifdef SK_BUILD_FOR_WIN
     // Gen 12 Intel devices running on windows has issues using barriers for dst reads. This is seen
     // when running the unit tests SkRuntimeEffect_Blender_GPU and DMSAA_aa_dst_read_after_dmsaa.
+    //
+    // Additionally, as of 2023-01-19 the latest driver compatible with Intel Iris Graphics 540
+    // (9th gen Skylake microarchitecture) produce SkRuntimeEffect_Blender and DMSAA deltas that
+    // are unacceptable and break our tests. The drivers in question are version 31.0.101.2115 and
+    // can be downloaded from
+    // https://www.intel.com/content/www/us/en/download/762755/intel-6th-10th-gen-processor-graphics-windows.html.
+    // This is likely due to bugs in the driver. As a temporary workaround, we disable texture
+    // barrier support in Skylake and newer generations (i.e. 9th gen or newer).
     if (kIntel_VkVendor == properties.vendorID &&
-        GetIntelGen(GetIntelGPUType(properties.deviceID)) == 12) {
+        GetIntelGen(GetIntelGPUType(properties.deviceID)) >= 9) {
         fTextureBarrierSupport = false;
     }
 #endif
@@ -1693,21 +1702,21 @@ bool GrVkCaps::programInfoWillUseDiscardableMSAA(const GrProgramInfo& programInf
 }
 
 GrBackendFormat GrVkCaps::getBackendFormatFromCompressionType(
-        SkImage::CompressionType compressionType) const {
+        SkTextureCompressionType compressionType) const {
     switch (compressionType) {
-        case SkImage::CompressionType::kNone:
+        case SkTextureCompressionType::kNone:
             return {};
-        case SkImage::CompressionType::kETC2_RGB8_UNORM:
+        case SkTextureCompressionType::kETC2_RGB8_UNORM:
             if (this->isVkFormatTexturable(VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK)) {
                 return GrBackendFormat::MakeVk(VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK);
             }
             return {};
-        case SkImage::CompressionType::kBC1_RGB8_UNORM:
+        case SkTextureCompressionType::kBC1_RGB8_UNORM:
             if (this->isVkFormatTexturable(VK_FORMAT_BC1_RGB_UNORM_BLOCK)) {
                 return GrBackendFormat::MakeVk(VK_FORMAT_BC1_RGB_UNORM_BLOCK);
             }
             return {};
-        case SkImage::CompressionType::kBC1_RGBA8_UNORM:
+        case SkTextureCompressionType::kBC1_RGBA8_UNORM:
             if (this->isVkFormatTexturable(VK_FORMAT_BC1_RGBA_UNORM_BLOCK)) {
                 return GrBackendFormat::MakeVk(VK_FORMAT_BC1_RGBA_UNORM_BLOCK);
             }
@@ -1795,9 +1804,9 @@ GrCaps::SupportedRead GrVkCaps::onSupportedReadPixelsColorType(
         return {GrColorType::kUnknown, 0};
     }
 
-    SkImage::CompressionType compression = GrBackendFormatToCompressionType(srcBackendFormat);
-    if (compression != SkImage::CompressionType::kNone) {
-        return { SkCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
+    SkTextureCompressionType compression = GrBackendFormatToCompressionType(srcBackendFormat);
+    if (compression != SkTextureCompressionType::kNone) {
+        return { SkTextureCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
                                                         : GrColorType::kRGBA_8888, 0 };
     }
 
@@ -1956,11 +1965,17 @@ static bool intel_deviceID_present(const std::array<uint32_t, N>& array, uint32_
     return std::find(array.begin(), array.end(), deviceID) != array.end();
 }
 
+
 GrVkCaps::IntelGPUType GrVkCaps::GetIntelGPUType(uint32_t deviceID) {
-    // Some common Intel GPU models, currently we cover ICL/RKL/TGL/ADL
+    // Some common Intel GPU models, currently we cover SKL/ICL/RKL/TGL/ADL
     // Referenced from the following Mesa source files:
     // https://github.com/mesa3d/mesa/blob/master/include/pci_ids/i965_pci_ids.h
     // https://github.com/mesa3d/mesa/blob/master/include/pci_ids/iris_pci_ids.h
+    static constexpr std::array<uint32_t, 25> kSkyLakeIDs = {
+        {0x1902, 0x1906, 0x190A, 0x190B, 0x190E, 0x1912, 0x1913,
+         0x1915, 0x1916, 0x1917, 0x191A, 0x191B, 0x191D, 0x191E,
+         0x1921, 0x1923, 0x1926, 0x1927, 0x192A, 0x192B, 0x192D,
+         0x1932, 0x193A, 0x193B, 0x193D}};
     static constexpr std::array<uint32_t, 14> kIceLakeIDs = {
         {0x8A50, 0x8A51, 0x8A52, 0x8A53, 0x8A54, 0x8A56, 0x8A57,
          0x8A58, 0x8A59, 0x8A5A, 0x8A5B, 0x8A5C, 0x8A5D, 0x8A71}};
@@ -1973,6 +1988,9 @@ GrVkCaps::IntelGPUType GrVkCaps::GetIntelGPUType(uint32_t deviceID) {
         {0x4680, 0x4681, 0x4682, 0x4683, 0x4690,
          0x4691, 0x4692, 0x4693, 0x4698, 0x4699}};
 
+    if (intel_deviceID_present(kSkyLakeIDs, deviceID)) {
+        return IntelGPUType::kSkyLake;
+    }
     if (intel_deviceID_present(kIceLakeIDs, deviceID)) {
         return IntelGPUType::kIceLake;
     }

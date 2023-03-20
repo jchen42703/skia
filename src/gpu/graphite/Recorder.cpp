@@ -7,27 +7,29 @@
 
 #include "include/gpu/graphite/Recorder.h"
 
+#include "include/core/SkCanvas.h"
 #include "include/effects/SkRuntimeEffect.h"
 #include "include/gpu/graphite/BackendTexture.h"
 #include "include/gpu/graphite/GraphiteTypes.h"
 #include "include/gpu/graphite/ImageProvider.h"
 #include "include/gpu/graphite/Recording.h"
+
 #include "src/core/SkConvertPixels.h"
-#include "src/core/SkRuntimeEffectDictionary.h"
 #include "src/gpu/AtlasTypes.h"
+#include "src/gpu/graphite/BufferManager.h"
 #include "src/gpu/graphite/Caps.h"
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/ContextPriv.h"
 #include "src/gpu/graphite/CopyTask.h"
 #include "src/gpu/graphite/Device.h"
-#include "src/gpu/graphite/DrawBufferManager.h"
 #include "src/gpu/graphite/GlobalCache.h"
+#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/PipelineData.h"
 #include "src/gpu/graphite/PipelineDataCache.h"
 #include "src/gpu/graphite/RecorderPriv.h"
 #include "src/gpu/graphite/ResourceProvider.h"
+#include "src/gpu/graphite/RuntimeEffectDictionary.h"
 #include "src/gpu/graphite/SharedContext.h"
-#include "src/gpu/graphite/SynchronizeToCpuTask.h"
 #include "src/gpu/graphite/TaskGraph.h"
 #include "src/gpu/graphite/Texture.h"
 #include "src/gpu/graphite/UploadBufferManager.h"
@@ -82,7 +84,7 @@ static int32_t next_id() {
 Recorder::Recorder(sk_sp<SharedContext> sharedContext,
                    const RecorderOptions& options)
         : fSharedContext(std::move(sharedContext))
-        , fRuntimeEffectDict(std::make_unique<SkRuntimeEffectDictionary>())
+        , fRuntimeEffectDict(std::make_unique<RuntimeEffectDictionary>())
         , fGraph(new TaskGraph)
         , fUniformDataCache(new UniformDataCache)
         , fTextureDataCache(new TextureDataCache)
@@ -98,11 +100,10 @@ Recorder::Recorder(sk_sp<SharedContext> sharedContext,
     }
 
     fResourceProvider = fSharedContext->makeResourceProvider(this->singleOwner());
-    fDrawBufferManager.reset(
-            new DrawBufferManager(fResourceProvider.get(),
-                                  fSharedContext->caps()->requiredUniformBufferAlignment(),
-                                  fSharedContext->caps()->requiredStorageBufferAlignment()));
-    fUploadBufferManager.reset(new UploadBufferManager(fResourceProvider.get()));
+    fDrawBufferManager.reset( new DrawBufferManager(fResourceProvider.get(),
+                                                    fSharedContext->caps()));
+    fUploadBufferManager.reset(new UploadBufferManager(fResourceProvider.get(),
+                                                       fSharedContext->caps()));
     SkASSERT(fResourceProvider);
 }
 
@@ -151,10 +152,8 @@ std::unique_ptr<Recording> Recorder::snap() {
     if (!fGraph->prepareResources(fResourceProvider.get(), fRuntimeEffectDict.get())) {
         // Leaving 'fTrackedDevices' alone since they were flushed earlier and could still be
         // attached to extant SkSurfaces.
-        fDrawBufferManager.reset(
-                new DrawBufferManager(fResourceProvider.get(),
-                                      fSharedContext->caps()->requiredUniformBufferAlignment(),
-                                      fSharedContext->caps()->requiredStorageBufferAlignment()));
+        fDrawBufferManager.reset(new DrawBufferManager(fResourceProvider.get(),
+                                                       fSharedContext->caps()));
         fTextureDataCache = std::make_unique<TextureDataCache>();
         // We leave the UniformDataCache alone
         fGraph->reset();
@@ -162,17 +161,52 @@ std::unique_ptr<Recording> Recorder::snap() {
         return nullptr;
     }
 
+    std::unique_ptr<Recording::LazyProxyData> targetProxyData;
+    if (fTargetProxyData) {
+        targetProxyData = std::move(fTargetProxyData);
+        fTargetProxyDevice.reset();
+        fTargetProxyCanvas.reset();
+    }
     std::unique_ptr<Recording> recording(new Recording(std::move(fGraph),
                                                        std::move(nonVolatileLazyProxies),
-                                                       std::move(volatileLazyProxies)));
+                                                       std::move(volatileLazyProxies),
+                                                       std::move(targetProxyData)));
+
     fDrawBufferManager->transferToRecording(recording.get());
     fUploadBufferManager->transferToRecording(recording.get());
 
     fGraph = std::make_unique<TaskGraph>();
     fRuntimeEffectDict->reset();
     fTextureDataCache = std::make_unique<TextureDataCache>();
-    fAtlasManager->evictAtlases();
+
+    // inject an initial task to maintain atlas state for next Recording
+    auto uploads = std::make_unique<UploadList>();
+    fAtlasManager->recordUploads(uploads.get(), /*useCachedUploads=*/true);
+    if (uploads->size() > 0) {
+        sk_sp<Task> uploadTask = UploadTask::Make(uploads.get());
+        this->priv().add(std::move(uploadTask));
+    }
+
     return recording;
+}
+
+SkCanvas* Recorder::makeDeferredCanvas(const SkImageInfo& imageInfo,
+                                       const TextureInfo& textureInfo) {
+    if (fTargetProxyCanvas) {
+        // Require snapping before requesting another canvas.
+        SKGPU_LOG_W("Requested a new deferred canvas before snapping the previous one");
+        return nullptr;
+    }
+
+    fTargetProxyData = std::make_unique<Recording::LazyProxyData>(textureInfo);
+    fTargetProxyDevice = Device::Make(this,
+                                      fTargetProxyData->refLazyProxy(),
+                                      imageInfo.dimensions(),
+                                      imageInfo.colorInfo(),
+                                      {},
+                                      false);
+    fTargetProxyCanvas = std::make_unique<SkCanvas>(fTargetProxyDevice);
+    return fTargetProxyCanvas.get();
 }
 
 void Recorder::registerDevice(Device* device) {
@@ -252,19 +286,26 @@ bool Recorder::updateBackendTexture(const BackendTexture& backendTex,
 
     for (int i = 0; i < numLevels; ++i) {
         SkASSERT(srcData[i].addr());
-        SkASSERT(srcData[i].colorType() == ct);
+        SkASSERT(srcData[i].info().colorInfo() == srcData[0].info().colorInfo());
 
         mipLevels[i].fPixels = srcData[i].addr();
         mipLevels[i].fRowBytes = srcData[i].rowBytes();
     }
 
+    // Src and dst colorInfo are the same
+    const SkColorInfo& colorInfo = srcData[0].info().colorInfo();
+    // Add UploadTask to Recorder
     UploadInstance upload = UploadInstance::Make(this,
                                                  std::move(proxy),
-                                                 ct,
+                                                 colorInfo, colorInfo,
                                                  mipLevels,
-                                                 SkIRect::MakeSize(backendTex.dimensions()));
-
-    sk_sp<Task> uploadTask = UploadTask::Make(upload);
+                                                 SkIRect::MakeSize(backendTex.dimensions()),
+                                                 std::make_unique<ImageUploadContext>());
+    if (!upload.isValid()) {
+        SKGPU_LOG_E("Recorder::updateBackendTexture: Could not create UploadInstance");
+        return false;
+    }
+    sk_sp<Task> uploadTask = UploadTask::Make(std::move(upload));
 
     this->priv().add(std::move(uploadTask));
 
@@ -292,72 +333,15 @@ void RecorderPriv::flushTrackedDevices() {
     }
 }
 
-RecorderPriv::PixelTransferResult RecorderPriv::transferPixels(const TextureProxy* proxy,
-                                                               const SkImageInfo& srcImageInfo,
-                                                               const SkColorInfo& dstColorInfo,
-                                                               const SkIRect& srcRect) {
-    SkASSERT(srcImageInfo.bounds().contains(srcRect));
-
-    const Caps* caps = this->caps();
-    SkColorType supportedColorType =
-            caps->supportedReadPixelsColorType(srcImageInfo.colorType(),
-                                               proxy->textureInfo(),
-                                               dstColorInfo.colorType());
-    if (supportedColorType == kUnknown_SkColorType) {
-        return {};
-    }
-
-    // Fail if read color type does not have all of dstCT's color channels and those missing color
-    // channels are in the src.
-    uint32_t dstChannels = SkColorTypeChannelFlags(dstColorInfo.colorType());
-    uint32_t legalReadChannels = SkColorTypeChannelFlags(supportedColorType);
-    uint32_t srcChannels = SkColorTypeChannelFlags(srcImageInfo.colorType());
-    if ((~legalReadChannels & dstChannels) & srcChannels) {
-        return {};
-    }
-
-    size_t rowBytes = caps->getAlignedTextureDataRowBytes(
-                              SkColorTypeBytesPerPixel(supportedColorType) * srcRect.width());
-    size_t size = rowBytes * srcRect.height();
-    sk_sp<Buffer> buffer = this->resourceProvider()->findOrCreateBuffer(
-            size,
-            BufferType::kXferCpuToGpu,
-            PrioritizeGpuReads::kNo);
-    if (!buffer) {
-        return {};
-    }
-
-    // Set up copy task
-    sk_sp<CopyTextureToBufferTask> copyTask = CopyTextureToBufferTask::Make(sk_ref_sp(proxy),
-                                                                            srcRect,
-                                                                            buffer,
-                                                                            /*bufferOffset=*/0,
-                                                                            rowBytes);
-    if (!copyTask) {
-        return {};
-    }
-    sk_sp<SynchronizeToCpuTask> syncTask = SynchronizeToCpuTask::Make(buffer);
-    if (!syncTask) {
-        return {};
-    }
-
-    this->add(std::move(copyTask));
-    this->add(std::move(syncTask));
-
-    PixelTransferResult result;
-    result.fTransferBuffer = std::move(buffer);
-    if (srcImageInfo.colorInfo() != dstColorInfo) {
-        result.fPixelConverter = [dims = srcRect.size(), dstColorInfo, srcImageInfo](
-                void* dst, const void* src) {
-            SkImageInfo srcInfo = SkImageInfo::Make(dims, srcImageInfo.colorInfo());
-            SkImageInfo dstInfo = SkImageInfo::Make(dims, dstColorInfo);
-            SkAssertResult(SkConvertPixels(dstInfo, dst, dstInfo.minRowBytes(),
-                                           srcInfo, src, srcInfo.minRowBytes()));
-        };
-    }
-
-    return result;
+sk_sp<SkImage> RecorderPriv::CreateCachedImage(Recorder* recorder,
+                                               const SkBitmap& bitmap,
+                                               Mipmapped mipmapped) {
+    // TODO(b/239604347): remove this hack. This is just here until we determine what Graphite's
+    // Recorder-level caching story is going to be.
+    sk_sp<SkImage> temp = SkImage::MakeFromBitmap(bitmap);
+    return temp->makeTextureImage(recorder, { mipmapped });
 }
+
 
 #if GRAPHITE_TEST_UTILS
 // used by the Context that created this Recorder to set a back pointer

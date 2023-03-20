@@ -14,10 +14,10 @@
 #include "include/private/SkSLModifiers.h"
 #include "include/private/SkSLProgramKind.h"
 #include "include/private/SkSLString.h"
-#include "include/private/SkStringView.h"
-#include "include/private/SkTo.h"
+#include "include/private/base/SkTo.h"
 #include "include/sksl/SkSLErrorReporter.h"
 #include "include/sksl/SkSLPosition.h"
+#include "src/base/SkStringView.h"
 #include "src/sksl/SkSLBuiltinTypes.h"
 #include "src/sksl/SkSLCompiler.h"
 #include "src/sksl/SkSLContext.h"
@@ -265,9 +265,6 @@ static bool check_main_signature(const Context& context, Position pos, const Typ
             }
             break;
         }
-        case ProgramKind::kGeneric:
-            // No rules apply here
-            break;
         case ProgramKind::kFragment:
         case ProgramKind::kGraphiteFragment: {
             bool validParams = (parameters.size() == 0) ||

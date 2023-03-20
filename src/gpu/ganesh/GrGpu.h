@@ -11,9 +11,10 @@
 #include "include/core/SkPath.h"
 #include "include/core/SkSpan.h"
 #include "include/core/SkSurface.h"
+#include "include/core/SkTypes.h"
 #include "include/gpu/GrTypes.h"
-#include "include/private/SkTArray.h"
-#include "src/core/SkTInternalLList.h"
+#include "include/private/base/SkTArray.h"
+#include "src/base/SkTInternalLList.h"
 #include "src/gpu/RefCntedCallback.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/ganesh/GrAttachment.h"
@@ -44,6 +45,7 @@ class GrTexture;
 class GrThreadSafePipelineBuilder;
 struct GrVkDrawableInfo;
 class SkJSONWriter;
+enum class SkTextureCompressionType;
 
 namespace SkSL {
     class Compiler;
@@ -135,7 +137,7 @@ public:
                                    GrTextureType textureType,
                                    GrRenderable renderable,
                                    int renderTargetSampleCnt,
-                                   SkBudgeted budgeted,
+                                   skgpu::Budgeted budgeted,
                                    GrProtected isProtected,
                                    GrColorType textureColorType,
                                    GrColorType srcColorType,
@@ -152,13 +154,13 @@ public:
                                    GrRenderable renderable,
                                    int renderTargetSampleCnt,
                                    GrMipmapped mipmapped,
-                                   SkBudgeted budgeted,
+                                   skgpu::Budgeted budgeted,
                                    GrProtected isProtected,
                                    std::string_view label);
 
     sk_sp<GrTexture> createCompressedTexture(SkISize dimensions,
                                              const GrBackendFormat& format,
-                                             SkBudgeted budgeted,
+                                             skgpu::Budgeted budgeted,
                                              GrMipmapped mipmapped,
                                              GrProtected isProtected,
                                              const void* data,
@@ -679,7 +681,7 @@ public:
 
 protected:
     static bool CompressedDataIsCorrect(SkISize dimensions,
-                                        SkImage::CompressionType,
+                                        SkTextureCompressionType,
                                         GrMipmapped,
                                         const void* data,
                                         size_t length);
@@ -732,17 +734,18 @@ private:
                                              const GrBackendFormat&,
                                              GrRenderable,
                                              int renderTargetSampleCnt,
-                                             SkBudgeted,
+                                             skgpu::Budgeted,
                                              GrProtected,
                                              int mipLevelCoont,
                                              uint32_t levelClearMask,
                                              std::string_view label) = 0;
     virtual sk_sp<GrTexture> onCreateCompressedTexture(SkISize dimensions,
                                                        const GrBackendFormat&,
-                                                       SkBudgeted,
+                                                       skgpu::Budgeted,
                                                        GrMipmapped,
                                                        GrProtected,
-                                                       const void* data, size_t dataSize) = 0;
+                                                       const void* data,
+                                                       size_t dataSize) = 0;
     virtual sk_sp<GrTexture> onWrapBackendTexture(const GrBackendTexture&,
                                                   GrWrapOwnership,
                                                   GrWrapCacheable,
@@ -846,7 +849,7 @@ private:
                                          GrTextureType textureType,
                                          GrRenderable,
                                          int renderTargetSampleCnt,
-                                         SkBudgeted,
+                                         skgpu::Budgeted,
                                          GrProtected,
                                          int mipLevelCnt,
                                          uint32_t levelClearMask,

@@ -8,7 +8,7 @@
 #include "src/shaders/gradients/SkGradientShaderBase.h"
 
 #include "include/core/SkColorSpace.h"
-#include "include/private/SkVx.h"
+#include "src/base/SkVx.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkColorSpaceXformSteps.h"
 #include "src/core/SkConvertPixels.h"
@@ -17,6 +17,13 @@
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkVM.h"
 #include "src/core/SkWriteBuffer.h"
+
+#if defined(SK_GRAPHITE)
+#include "src/core/SkColorSpacePriv.h"
+#include "src/gpu/graphite/KeyContext.h"
+#include "src/gpu/graphite/KeyHelpers.h"
+#include "src/gpu/graphite/PaintParamsKey.h"
+#endif
 
 #include <cmath>
 
@@ -50,7 +57,7 @@ SkGradientShaderBase::Descriptor::Descriptor() {
 }
 SkGradientShaderBase::Descriptor::~Descriptor() = default;
 
-void SkGradientShaderBase::Descriptor::flatten(SkWriteBuffer& buffer) const {
+void SkGradientShaderBase::flatten(SkWriteBuffer& buffer) const {
     uint32_t flags = 0;
     if (fPositions) {
         flags |= kHasPosition_GSF;
@@ -71,12 +78,27 @@ void SkGradientShaderBase::Descriptor::flatten(SkWriteBuffer& buffer) const {
 
     buffer.writeUInt(flags);
 
-    buffer.writeColor4fArray(fColors, fColorCount);
+    // If we injected implicit first/last stops at construction time, omit those when serializing:
+    int colorCount = fColorCount;
+    const SkColor4f* colors = fColors;
+    const SkScalar* positions = fPositions;
+    if (fFirstStopIsImplicit) {
+        colorCount--;
+        colors++;
+        if (positions) {
+            positions++;
+        }
+    }
+    if (fLastStopIsImplicit) {
+        colorCount--;
+    }
+
+    buffer.writeColor4fArray(colors, colorCount);
     if (colorSpaceData) {
         buffer.writeDataAsByteArray(colorSpaceData.get());
     }
-    if (fPositions) {
-        buffer.writeScalarArray(fPositions, fColorCount);
+    if (positions) {
+        buffer.writeScalarArray(positions, colorCount);
     }
 }
 
@@ -141,6 +163,8 @@ bool SkGradientShaderBase::DescriptorScope::unflatten(SkReadBuffer& buffer,
 SkGradientShaderBase::SkGradientShaderBase(const Descriptor& desc, const SkMatrix& ptsToUnit)
         : fPtsToUnit(ptsToUnit)
         , fColorSpace(desc.fColorSpace ? desc.fColorSpace : SkColorSpace::MakeSRGB())
+        , fFirstStopIsImplicit(false)
+        , fLastStopIsImplicit(false)
         , fColorsAreOpaque(true) {
     fPtsToUnit.getType();  // Precache so reads are threadsafe.
     SkASSERT(desc.fColorCount > 1);
@@ -163,12 +187,10 @@ SkGradientShaderBase::SkGradientShaderBase(const Descriptor& desc, const SkMatri
      */
     fColorCount = desc.fColorCount;
     // check if we need to add in start and/or end position/colors
-    bool needsFirst = false;
-    bool needsLast = false;
     if (desc.fPositions) {
-        needsFirst = desc.fPositions[0] != 0;
-        needsLast = desc.fPositions[desc.fColorCount - 1] != SK_Scalar1;
-        fColorCount += needsFirst + needsLast;
+        fFirstStopIsImplicit = desc.fPositions[0] != 0;
+        fLastStopIsImplicit = desc.fPositions[desc.fColorCount - 1] != SK_Scalar1;
+        fColorCount += fFirstStopIsImplicit + fLastStopIsImplicit;
     }
 
     size_t storageSize =
@@ -178,14 +200,14 @@ SkGradientShaderBase::SkGradientShaderBase(const Descriptor& desc, const SkMatri
 
     // Now copy over the colors, adding the duplicates at t=0 and t=1 as needed
     SkColor4f* colors = fColors;
-    if (needsFirst) {
+    if (fFirstStopIsImplicit) {
         *colors++ = desc.fColors[0];
     }
     for (int i = 0; i < desc.fColorCount; ++i) {
         colors[i] = desc.fColors[i];
         fColorsAreOpaque = fColorsAreOpaque && (desc.fColors[i].fA == 1);
     }
-    if (needsLast) {
+    if (fLastStopIsImplicit) {
         colors += desc.fColorCount;
         *colors = desc.fColors[desc.fColorCount - 1];
     }
@@ -195,8 +217,8 @@ SkGradientShaderBase::SkGradientShaderBase(const Descriptor& desc, const SkMatri
         SkScalar* positions = fPositions;
         *positions++ = prev; // force the first pos to 0
 
-        int startIndex = needsFirst ? 0 : 1;
-        int count = desc.fColorCount + needsLast;
+        int startIndex = fFirstStopIsImplicit ? 0 : 1;
+        int count = desc.fColorCount + fLastStopIsImplicit;
 
         bool uniformStops = true;
         const SkScalar uniformStep = desc.fPositions[startIndex] - prev;
@@ -216,18 +238,6 @@ SkGradientShaderBase::SkGradientShaderBase(const Descriptor& desc, const SkMatri
 }
 
 SkGradientShaderBase::~SkGradientShaderBase() {}
-
-void SkGradientShaderBase::flatten(SkWriteBuffer& buffer) const {
-    Descriptor desc;
-    desc.fColors = fColors;
-    desc.fColorSpace = fColorSpace;
-    desc.fPositions = fPositions;
-    desc.fColorCount = fColorCount;
-    desc.fTileMode = fTileMode;
-    desc.fInterpolation = fInterpolation;
-
-    desc.flatten(buffer);
-}
 
 static void add_stop_color(SkRasterPipeline_GradientCtx* ctx, size_t stop,
                            SkPMColor4f Fs, SkPMColor4f Bs) {
@@ -287,50 +297,13 @@ static void init_stop_pos(SkRasterPipeline_GradientCtx* ctx, size_t stop, float 
     add_stop_color(ctx, stop, Fs, Bs);
 }
 
-bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
-    SkRasterPipeline* p = rec.fPipeline;
-    SkArenaAlloc* alloc = rec.fAlloc;
-    SkRasterPipeline_DecalTileCtx* decal_ctx = nullptr;
-
-    SkMatrix matrix;
-    if (!this->computeTotalInverse(rec.fMatrixProvider.localToDevice(), rec.fLocalM, &matrix)) {
-        return false;
-    }
-    matrix.postConcat(fPtsToUnit);
-
-    SkRasterPipeline_<256> postPipeline;
-
-    p->append(SkRasterPipeline::seed_shader);
-    p->append_matrix(alloc, matrix);
-    this->appendGradientStages(alloc, p, &postPipeline);
-
-    switch(fTileMode) {
-        case SkTileMode::kMirror: p->append(SkRasterPipeline::mirror_x_1); break;
-        case SkTileMode::kRepeat: p->append(SkRasterPipeline::repeat_x_1); break;
-        case SkTileMode::kDecal:
-            decal_ctx = alloc->make<SkRasterPipeline_DecalTileCtx>();
-            decal_ctx->limit_x = SkBits2Float(SkFloat2Bits(1.0f) + 1);
-            // reuse mask + limit_x stage, or create a custom decal_1 that just stores the mask
-            p->append(SkRasterPipeline::decal_x, decal_ctx);
-            [[fallthrough]];
-
-        case SkTileMode::kClamp:
-            if (!fPositions) {
-                // We clamp only when the stops are evenly spaced.
-                // If not, there may be hard stops, and clamping ruins hard stops at 0 and/or 1.
-                // In that case, we must make sure we're using the general "gradient" stage,
-                // which is the only stage that will correctly handle unclamped t.
-                p->append(SkRasterPipeline::clamp_x_1);
-            }
-            break;
-    }
-
-    // Transform all of the colors to destination color space, possibly premultiplied
-    SkColor4fXformer xformedColors(this, rec.fDstCS);
-    const SkPMColor4f* pmColors = xformedColors.fColors.begin();
-
+void SkGradientShaderBase::AppendGradientFillStages(SkRasterPipeline* p,
+                                                    SkArenaAlloc* alloc,
+                                                    const SkPMColor4f* pmColors,
+                                                    const SkScalar* positions,
+                                                    int count) {
     // The two-stop case with stops at 0 and 1.
-    if (fColorCount == 2 && fPositions == nullptr) {
+    if (count == 2 && positions == nullptr) {
         const SkPMColor4f c_l = pmColors[0],
                           c_r = pmColors[1];
 
@@ -339,7 +312,7 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
         (skvx::float4::Load(c_r.vec()) - skvx::float4::Load(c_l.vec())).store(ctx->f);
         (                                skvx::float4::Load(c_l.vec())).store(ctx->b);
 
-        p->append(SkRasterPipeline::evenly_spaced_2_stop_gradient, ctx);
+        p->append(SkRasterPipelineOp::evenly_spaced_2_stop_gradient, ctx);
     } else {
         auto* ctx = alloc->make<SkRasterPipeline_GradientCtx>();
 
@@ -347,14 +320,14 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
         // at -inf. Therefore, the max number of stops is fColorCount+1.
         for (int i = 0; i < 4; i++) {
             // Allocate at least at for the AVX2 gather from a YMM register.
-            ctx->fs[i] = alloc->makeArray<float>(std::max(fColorCount+1, 8));
-            ctx->bs[i] = alloc->makeArray<float>(std::max(fColorCount+1, 8));
+            ctx->fs[i] = alloc->makeArray<float>(std::max(count + 1, 8));
+            ctx->bs[i] = alloc->makeArray<float>(std::max(count + 1, 8));
         }
 
-        if (fPositions == nullptr) {
+        if (positions == nullptr) {
             // Handle evenly distributed stops.
 
-            size_t stopCount = fColorCount;
+            size_t stopCount = count;
             float gapCount = stopCount - 1;
 
             SkPMColor4f c_l = pmColors[0];
@@ -366,32 +339,31 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
             add_const_color(ctx, stopCount - 1, c_l);
 
             ctx->stopCount = stopCount;
-            p->append(SkRasterPipeline::evenly_spaced_gradient, ctx);
+            p->append(SkRasterPipelineOp::evenly_spaced_gradient, ctx);
         } else {
             // Handle arbitrary stops.
 
-            ctx->ts = alloc->makeArray<float>(fColorCount+1);
+            ctx->ts = alloc->makeArray<float>(count + 1);
 
             // Remove the default stops inserted by SkGradientShaderBase::SkGradientShaderBase
             // because they are naturally handled by the search method.
             int firstStop;
             int lastStop;
-            if (fColorCount > 2) {
-                firstStop = fColors[0] != fColors[1] ? 0 : 1;
-                lastStop = fColors[fColorCount - 2] != fColors[fColorCount - 1]
-                           ? fColorCount - 1 : fColorCount - 2;
+            if (count > 2) {
+                firstStop = pmColors[0] != pmColors[1] ? 0 : 1;
+                lastStop = pmColors[count - 2] != pmColors[count - 1] ? count - 1 : count - 2;
             } else {
                 firstStop = 0;
                 lastStop = 1;
             }
 
             size_t stopCount = 0;
-            float  t_l = fPositions[firstStop];
+            float  t_l = positions[firstStop];
             SkPMColor4f c_l = pmColors[firstStop];
             add_const_color(ctx, stopCount++, c_l);
             // N.B. lastStop is the index of the last stop, not one after.
             for (int i = firstStop; i < lastStop; i++) {
-                float  t_r = fPositions[i + 1];
+                float  t_r = positions[i + 1];
                 SkPMColor4f c_r = pmColors[i + 1];
                 SkASSERT(t_l <= t_r);
                 if (t_l < t_r) {
@@ -406,9 +378,49 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
             add_const_color(ctx, stopCount++, c_l);
 
             ctx->stopCount = stopCount;
-            p->append(SkRasterPipeline::gradient, ctx);
+            p->append(SkRasterPipelineOp::gradient, ctx);
         }
     }
+}
+
+bool SkGradientShaderBase::appendStages(const SkStageRec& rec, const MatrixRec& mRec) const {
+    SkRasterPipeline* p = rec.fPipeline;
+    SkArenaAlloc* alloc = rec.fAlloc;
+    SkRasterPipeline_DecalTileCtx* decal_ctx = nullptr;
+
+    std::optional<MatrixRec> newMRec = mRec.apply(rec, fPtsToUnit);
+    if (!newMRec.has_value()) {
+        return false;
+    }
+
+    SkRasterPipeline_<256> postPipeline;
+
+    this->appendGradientStages(alloc, p, &postPipeline);
+
+    switch(fTileMode) {
+        case SkTileMode::kMirror: p->append(SkRasterPipelineOp::mirror_x_1); break;
+        case SkTileMode::kRepeat: p->append(SkRasterPipelineOp::repeat_x_1); break;
+        case SkTileMode::kDecal:
+            decal_ctx = alloc->make<SkRasterPipeline_DecalTileCtx>();
+            decal_ctx->limit_x = SkBits2Float(SkFloat2Bits(1.0f) + 1);
+            // reuse mask + limit_x stage, or create a custom decal_1 that just stores the mask
+            p->append(SkRasterPipelineOp::decal_x, decal_ctx);
+            [[fallthrough]];
+
+        case SkTileMode::kClamp:
+            if (!fPositions) {
+                // We clamp only when the stops are evenly spaced.
+                // If not, there may be hard stops, and clamping ruins hard stops at 0 and/or 1.
+                // In that case, we must make sure we're using the general "gradient" stage,
+                // which is the only stage that will correctly handle unclamped t.
+                p->append(SkRasterPipelineOp::clamp_x_1);
+            }
+            break;
+    }
+
+    // Transform all of the colors to destination color space, possibly premultiplied
+    SkColor4fXformer xformedColors(this, rec.fDstCS);
+    AppendGradientFillStages(p, alloc, xformedColors.fColors.begin(), fPositions, fColorCount);
 
     using ColorSpace = Interpolation::ColorSpace;
     bool colorIsPremul = this->interpolateInPremul();
@@ -418,14 +430,14 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
         switch (fInterpolation.fColorSpace) {
             case ColorSpace::kLab:
             case ColorSpace::kOKLab:
-                p->append(SkRasterPipeline::unpremul);
+                p->append(SkRasterPipelineOp::unpremul);
                 colorIsPremul = false;
                 break;
             case ColorSpace::kLCH:
             case ColorSpace::kOKLCH:
             case ColorSpace::kHSL:
             case ColorSpace::kHWB:
-                p->append(SkRasterPipeline::unpremul_polar);
+                p->append(SkRasterPipelineOp::unpremul_polar);
                 colorIsPremul = false;
                 break;
             default: break;
@@ -434,14 +446,14 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
 
     // Convert colors in exotic spaces back to their intermediate SkColorSpace
     switch (fInterpolation.fColorSpace) {
-        case ColorSpace::kLab:   p->append(SkRasterPipeline::css_lab_to_xyz);           break;
-        case ColorSpace::kOKLab: p->append(SkRasterPipeline::css_oklab_to_linear_srgb); break;
-        case ColorSpace::kLCH:   p->append(SkRasterPipeline::css_hcl_to_lab);
-                                 p->append(SkRasterPipeline::css_lab_to_xyz);           break;
-        case ColorSpace::kOKLCH: p->append(SkRasterPipeline::css_hcl_to_lab);
-                                 p->append(SkRasterPipeline::css_oklab_to_linear_srgb); break;
-        case ColorSpace::kHSL:   p->append(SkRasterPipeline::css_hsl_to_srgb);          break;
-        case ColorSpace::kHWB:   p->append(SkRasterPipeline::css_hwb_to_srgb);          break;
+        case ColorSpace::kLab:   p->append(SkRasterPipelineOp::css_lab_to_xyz);           break;
+        case ColorSpace::kOKLab: p->append(SkRasterPipelineOp::css_oklab_to_linear_srgb); break;
+        case ColorSpace::kLCH:   p->append(SkRasterPipelineOp::css_hcl_to_lab);
+                                 p->append(SkRasterPipelineOp::css_lab_to_xyz);           break;
+        case ColorSpace::kOKLCH: p->append(SkRasterPipelineOp::css_hcl_to_lab);
+                                 p->append(SkRasterPipelineOp::css_oklab_to_linear_srgb); break;
+        case ColorSpace::kHSL:   p->append(SkRasterPipelineOp::css_hsl_to_srgb);          break;
+        case ColorSpace::kHWB:   p->append(SkRasterPipelineOp::css_hwb_to_srgb);          break;
         default: break;
     }
 
@@ -463,7 +475,7 @@ bool SkGradientShaderBase::onAppendStages(const SkStageRec& rec) const {
             ->apply(p);
 
     if (decal_ctx) {
-        p->append(SkRasterPipeline::check_decal_mask, decal_ctx);
+        p->append(SkRasterPipelineOp::check_decal_mask, decal_ctx);
     }
 
     p->extend(postPipeline);
@@ -578,20 +590,17 @@ static skvm::Color css_hwb_to_srgb(skvm::Color hwb, skvm::Builder* p) {
     };
 }
 
-skvm::Color SkGradientShaderBase::onProgram(skvm::Builder* p,
-                                            skvm::Coord device, skvm::Coord local,
-                                            skvm::Color /*paint*/,
-                                            const SkMatrixProvider& mats, const SkMatrix* localM,
-                                            const SkColorInfo& dstInfo,
-                                            skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const {
-    SkMatrix inv;
-    if (!this->computeTotalInverse(mats.localToDevice(), localM, &inv)) {
+skvm::Color SkGradientShaderBase::program(skvm::Builder* p,
+                                          skvm::Coord device,
+                                          skvm::Coord local,
+                                          skvm::Color /*paint*/,
+                                          const MatrixRec& mRec,
+                                          const SkColorInfo& dstInfo,
+                                          skvm::Uniforms* uniforms,
+                                          SkArenaAlloc* alloc) const {
+    if (!mRec.apply(p, &local, uniforms, fPtsToUnit).has_value()) {
         return {};
     }
-    inv.postConcat(fPtsToUnit);
-    inv.normalizePerspective();
-
-    local = SkShaderBase::ApplyMatrix(p, inv, local, uniforms);
 
     skvm::I32 mask = p->splat(~0);
     skvm::F32 t = this->transformT(p,uniforms, local, &mask);
@@ -793,7 +802,6 @@ skvm::Color SkGradientShaderBase::onProgram(skvm::Builder* p,
         pun_to_F32(mask & pun_to_I32(color.a)),
     };
 }
-
 
 bool SkGradientShaderBase::isOpaque() const {
     return fColorsAreOpaque && (this->getTileMode() != SkTileMode::kDecal);
@@ -1042,7 +1050,11 @@ SkColor4fXformer::SkColor4fXformer(const SkGradientShaderBase* shader, SkColorSp
                     }
                     break;
                 case HueMethod::kLonger:
-                    if (0 < h2 - h1 && h2 - h1 < 180) {
+                    if ((i == 0 && shader->fFirstStopIsImplicit) ||
+                        (i == colorCount - 2 && shader->fLastStopIsImplicit)) {
+                        // Do nothing. We don't want to introduce a full revolution for these stops
+                        // Full rationale at skbug.com/13941
+                    } else if (0 < h2 - h1 && h2 - h1 < 180) {
                         h2 -= 360;  // i.e. h1 += 360
                         delta -= 360;
                     } else if (-180 < h2 - h1 && h2 - h1 <= 0) {
@@ -1257,3 +1269,57 @@ SkGradientShaderBase::ColorStopOptimizer::ColorStopOptimizer(const SkColor4f* co
         }
     }
 }
+
+#if defined(SK_GRAPHITE)
+// Please see GrGradientShader.cpp::make_interpolated_to_dst for substantial comments
+// as to why this code is structured this way.
+void SkGradientShaderBase::MakeInterpolatedToDst(
+        const skgpu::graphite::KeyContext& keyContext,
+        skgpu::graphite::PaintParamsKeyBuilder* builder,
+        skgpu::graphite::PipelineDataGatherer* gatherer,
+        const skgpu::graphite::GradientShaderBlocks::GradientData& gradData,
+        const SkGradientShaderBase::Interpolation& interp,
+        SkColorSpace* intermediateCS) {
+    using ColorSpace = SkGradientShader::Interpolation::ColorSpace;
+    using namespace skgpu::graphite;
+
+    bool inputPremul = static_cast<bool>(interp.fInPremul);
+
+    switch (interp.fColorSpace) {
+        case ColorSpace::kLab:
+        case ColorSpace::kOKLab:
+        case ColorSpace::kLCH:
+        case ColorSpace::kOKLCH:
+        case ColorSpace::kHSL:
+        case ColorSpace::kHWB:
+            inputPremul = false;
+            break;
+        default:
+            break;
+    }
+
+    const SkColorInfo& dstColorInfo = keyContext.dstColorInfo();
+
+    SkColorSpace* dstColorSpace = dstColorInfo.colorSpace() ? dstColorInfo.colorSpace()
+                                                            : sk_srgb_singleton();
+
+    SkAlphaType intermediateAlphaType = inputPremul ? kPremul_SkAlphaType
+                                                    : kUnpremul_SkAlphaType;
+
+    ColorSpaceTransformBlock::ColorSpaceTransformData data(intermediateCS, intermediateAlphaType,
+                                                           dstColorSpace, dstColorInfo.alphaType());
+
+    // The gradient block and colorSpace conversion block need to be combined together
+    // (via the colorFilterShader block) so that the localMatrix block can treat them as
+    // one child.
+    ColorFilterShaderBlock::BeginBlock(keyContext, builder, gatherer);
+
+        GradientShaderBlocks::BeginBlock(keyContext, builder, gatherer, gradData);
+        builder->endBlock();
+
+        ColorSpaceTransformBlock::BeginBlock(keyContext, builder, gatherer, &data);
+        builder->endBlock();
+
+    builder->endBlock();
+}
+#endif

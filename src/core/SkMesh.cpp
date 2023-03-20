@@ -10,13 +10,13 @@
 #ifdef SK_ENABLE_SKSL
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
-#include "include/core/SkMath.h"
 #include "include/private/SkOpts_spi.h"
 #include "include/private/SkSLProgramElement.h"
 #include "include/private/SkSLProgramKind.h"
+#include "include/private/base/SkMath.h"
+#include "src/base/SkSafeMath.h"
 #include "src/core/SkMeshPriv.h"
 #include "src/core/SkRuntimeEffectPriv.h"
-#include "src/core/SkSafeMath.h"
 #include "src/sksl/SkSLAnalysis.h"
 #include "src/sksl/SkSLBuiltinTypes.h"
 #include "src/sksl/SkSLCompiler.h"
@@ -34,10 +34,10 @@
 #include "src/sksl/ir/SkSLVariable.h"
 #include "src/sksl/ir/SkSLVariableReference.h"
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 #include "src/gpu/ganesh/GrGpu.h"
 #include "src/gpu/ganesh/GrStagingBufferManager.h"
-#endif  // SK_SUPPORT_GPU
+#endif  // defined(SK_GANESH)
 
 #include <locale>
 #include <string>
@@ -655,10 +655,11 @@ sk_sp<IndexBuffer> SkMesh::MakeIndexBuffer(GrDirectContext* dc, const void* data
     if (!dc) {
         return SkMeshPriv::CpuIndexBuffer::Make(data, size);
     }
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     return SkMeshPriv::GpuIndexBuffer::Make(dc, data, size);
-#endif
+#else
     return nullptr;
+#endif
 }
 
 sk_sp<IndexBuffer> SkMesh::CopyIndexBuffer(GrDirectContext* dc, sk_sp<IndexBuffer> src) {
@@ -677,10 +678,11 @@ sk_sp<VertexBuffer> SkMesh::MakeVertexBuffer(GrDirectContext* dc, const void* da
     if (!dc) {
         return SkMeshPriv::CpuVertexBuffer::Make(data, size);
     }
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     return SkMeshPriv::GpuVertexBuffer::Make(dc, data, size);
-#endif
+#else
     return nullptr;
+#endif
 }
 
 sk_sp<VertexBuffer> SkMesh::CopyVertexBuffer(GrDirectContext* dc, sk_sp<VertexBuffer> src) {
@@ -695,51 +697,64 @@ sk_sp<VertexBuffer> SkMesh::CopyVertexBuffer(GrDirectContext* dc, sk_sp<VertexBu
     return MakeVertexBuffer(dc, data, vb->size());
 }
 
-SkMesh SkMesh::Make(sk_sp<SkMeshSpecification> spec,
-                    Mode mode,
-                    sk_sp<VertexBuffer> vb,
-                    size_t vertexCount,
-                    size_t vertexOffset,
-                    sk_sp<const SkData> uniforms,
-                    const SkRect& bounds) {
-    SkMesh cm;
-    cm.fSpec     = std::move(spec);
-    cm.fMode     = mode;
-    cm.fVB       = std::move(vb);
-    cm.fUniforms = std::move(uniforms);
-    cm.fVCount   = vertexCount;
-    cm.fVOffset  = vertexOffset;
-    cm.fBounds   = bounds;
-    return cm.validate() ? cm : SkMesh{};
+SkMesh::Result SkMesh::Make(sk_sp<SkMeshSpecification> spec,
+                            Mode mode,
+                            sk_sp<VertexBuffer> vb,
+                            size_t vertexCount,
+                            size_t vertexOffset,
+                            sk_sp<const SkData> uniforms,
+                            const SkRect& bounds) {
+    SkMesh mesh;
+    mesh.fSpec     = std::move(spec);
+    mesh.fMode     = mode;
+    mesh.fVB       = std::move(vb);
+    mesh.fUniforms = std::move(uniforms);
+    mesh.fVCount   = vertexCount;
+    mesh.fVOffset  = vertexOffset;
+    mesh.fBounds   = bounds;
+    auto [valid, msg] = mesh.validate();
+    if (!valid) {
+        mesh = {};
+    }
+    return {std::move(mesh), std::move(msg)};
 }
 
-SkMesh SkMesh::MakeIndexed(sk_sp<SkMeshSpecification> spec,
-                           Mode mode,
-                           sk_sp<VertexBuffer> vb,
-                           size_t vertexCount,
-                           size_t vertexOffset,
-                           sk_sp<IndexBuffer> ib,
-                           size_t indexCount,
-                           size_t indexOffset,
-                           sk_sp<const SkData> uniforms,
-                           const SkRect& bounds) {
-    SkMesh cm;
-    cm.fSpec     = std::move(spec);
-    cm.fMode     = mode;
-    cm.fVB       = std::move(vb);
-    cm.fVCount   = vertexCount;
-    cm.fVOffset  = vertexOffset;
-    cm.fIB       = std::move(ib);
-    cm.fUniforms = std::move(uniforms);
-    cm.fICount   = indexCount;
-    cm.fIOffset  = indexOffset;
-    cm.fBounds   = bounds;
-    return cm.validate() ? cm : SkMesh{};
+SkMesh::Result SkMesh::MakeIndexed(sk_sp<SkMeshSpecification> spec,
+                                   Mode mode,
+                                   sk_sp<VertexBuffer> vb,
+                                   size_t vertexCount,
+                                   size_t vertexOffset,
+                                   sk_sp<IndexBuffer> ib,
+                                   size_t indexCount,
+                                   size_t indexOffset,
+                                   sk_sp<const SkData> uniforms,
+                                   const SkRect& bounds) {
+    if (!ib) {
+        // We check this before calling validate to disambiguate from a non-indexed mesh where
+        // IB is expected to be null.
+        return {{}, SkString{"An index buffer is required."}};
+    }
+    SkMesh mesh;
+    mesh.fSpec     = std::move(spec);
+    mesh.fMode     = mode;
+    mesh.fVB       = std::move(vb);
+    mesh.fVCount   = vertexCount;
+    mesh.fVOffset  = vertexOffset;
+    mesh.fIB       = std::move(ib);
+    mesh.fUniforms = std::move(uniforms);
+    mesh.fICount   = indexCount;
+    mesh.fIOffset  = indexOffset;
+    mesh.fBounds   = bounds;
+    auto [valid, msg] = mesh.validate();
+    if (!valid) {
+        mesh = {};
+    }
+    return {std::move(mesh), std::move(msg)};
 }
 
 bool SkMesh::isValid() const {
     bool valid = SkToBool(fSpec);
-    SkASSERT(valid == this->validate());
+    SkASSERT(valid == std::get<0>(this->validate()));
     return valid;
 }
 
@@ -751,17 +766,14 @@ static size_t min_vcount_for_mode(SkMesh::Mode mode) {
     SkUNREACHABLE;
 }
 
-bool SkMesh::validate() const {
+std::tuple<bool, SkString> SkMesh::validate() const {
+#define FAIL_MESH_VALIDATE(...)  return std::make_tuple(false, SkStringPrintf(__VA_ARGS__))
     if (!fSpec) {
-        return false;
+        FAIL_MESH_VALIDATE("SkMeshSpecification is required.");
     }
 
     if (!fVB) {
-        return false;
-    }
-
-    if (!fVCount) {
-        return false;
+        FAIL_MESH_VALIDATE("A vertex buffer is required.");
     }
 
     auto vb = static_cast<SkMeshPriv::VB*>(fVB.get());
@@ -770,41 +782,64 @@ bool SkMesh::validate() const {
     SkSafeMath sm;
     size_t vsize = sm.mul(fSpec->stride(), fVCount);
     if (sm.add(vsize, fVOffset) > vb->size()) {
-        return false;
+        FAIL_MESH_VALIDATE("The vertex buffer offset and vertex count reads beyond the end of the"
+                           " vertex buffer.");
     }
 
     if (fVOffset%fSpec->stride() != 0) {
-        return false;
+        FAIL_MESH_VALIDATE("The vertex offset (%zu) must be a multiple of the vertex stride (%zu).",
+                           fVOffset,
+                           fSpec->stride());
     }
 
     if (size_t uniformSize = fSpec->uniformSize()) {
         if (!fUniforms || fUniforms->size() < uniformSize) {
-            return false;
+            FAIL_MESH_VALIDATE("The uniform data is %zu bytes but must be at least %zu.",
+                               fUniforms->size(),
+                               uniformSize);
         }
     }
 
+    auto modeToStr = [](Mode m) {
+        switch (m) {
+            case Mode::kTriangles:     return "triangles";
+            case Mode::kTriangleStrip: return "triangle-strip";
+        }
+        SkUNREACHABLE;
+    };
     if (ib) {
         if (fICount < min_vcount_for_mode(fMode)) {
-            return false;
+            FAIL_MESH_VALIDATE("%s mode requires at least %zu indices but index count is %zu.",
+                               modeToStr(fMode),
+                               min_vcount_for_mode(fMode),
+                               fICount);
         }
         size_t isize = sm.mul(sizeof(uint16_t), fICount);
         if (sm.add(isize, fIOffset) > ib->size()) {
-            return false;
+            FAIL_MESH_VALIDATE("The index buffer offset and index count reads beyond the end of the"
+                               " index buffer.");
+
         }
         // If we allow 32 bit indices then this should enforce 4 byte alignment in that case.
         if (!SkIsAlign2(fIOffset)) {
-            return false;
+            FAIL_MESH_VALIDATE("The index offset must be a multiple of 2.");
         }
     } else {
         if (fVCount < min_vcount_for_mode(fMode)) {
-            return false;
+            FAIL_MESH_VALIDATE("%s mode requires at least %zu vertices but vertex count is %zu.",
+                               modeToStr(fMode),
+                               min_vcount_for_mode(fMode),
+                               fICount);
         }
-        if (fICount || fIOffset) {
-            return false;
-        }
+        SkASSERT(!fICount);
+        SkASSERT(!fIOffset);
     }
 
-    return sm.ok();
+    if (!sm.ok()) {
+        FAIL_MESH_VALIDATE("Overflow");
+    }
+#undef FAIL_MESH_VALIDATE
+    return {true, {}};
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -833,7 +868,7 @@ bool SkMesh::VertexBuffer::update(GrDirectContext* dc,
     return check_update(data, offset, size, this->size()) && this->onUpdate(dc, data, offset, size);
 }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 bool SkMeshPriv::UpdateGpuBuffer(GrDirectContext* dc,
                                  sk_sp<GrGpuBuffer> buffer,
                                  const void* data,
@@ -885,6 +920,6 @@ bool SkMeshPriv::UpdateGpuBuffer(GrDirectContext* dc,
 
     return true;
 }
-#endif  // SK_SUPPORT_GPU
+#endif  // defined(SK_GANESH)
 
 #endif  // SK_ENABLE_SKSL

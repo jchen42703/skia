@@ -15,7 +15,8 @@
 #include "include/core/SkRegion.h"
 #include "include/core/SkShader.h"
 #include "include/core/SkSurfaceProps.h"
-#include "include/private/SkNoncopyable.h"
+#include "include/private/base/SkNoncopyable.h"
+#include "include/private/base/SkTArray.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkMatrixProvider.h"
 #include "src/core/SkRasterClip.h"
@@ -350,7 +351,7 @@ protected:
                                     const SkPaint& drawingPaint) = 0;
 
     // Slug handling routines.
-#if (SK_SUPPORT_GPU || defined(SK_GRAPHITE_ENABLED))
+#if (defined(SK_GANESH) || defined(SK_GRAPHITE))
     virtual sk_sp<sktext::gpu::Slug> convertGlyphRunListToSlug(
             const sktext::GlyphRunList& glyphRunList,
             const SkPaint& initialPaint,
@@ -464,6 +465,7 @@ private:
     friend class SkAndroidFrameworkUtils;
     friend class SkCanvas;
     friend class SkDraw;
+    friend class SkDrawBase;
     friend class SkSurface_Raster;
     friend class DeviceTestingAccess;
 
@@ -576,7 +578,7 @@ protected:
     void drawMesh(const SkMesh&, sk_sp<SkBlender>, const SkPaint&) override {}
 #endif
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     void drawSlug(SkCanvas*, const sktext::gpu::Slug*, const SkPaint&) override {}
 #endif
 
@@ -606,7 +608,7 @@ private:
     ClipState& writableClip();
 
     void resetClipStack() {
-        fClipStack.reset();
+        fClipStack.clear();
         fClipStack.emplace_back(this->bounds(), /*isAA=*/false, /*isRect=*/true);
     }
 

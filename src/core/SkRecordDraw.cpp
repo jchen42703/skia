@@ -7,7 +7,7 @@
 
 #include "include/core/SkBBHFactory.h"
 #include "include/core/SkImage.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "src/core/SkCanvasPriv.h"
 #include "src/core/SkColorFilterBase.h"
 #include "src/core/SkImageFilter_Base.h"
@@ -139,7 +139,7 @@ DRAW(DrawRRect, drawRRect(r.rrect, r.paint))
 DRAW(DrawRect, drawRect(r.rect, r.paint))
 DRAW(DrawRegion, drawRegion(r.region, r.paint))
 DRAW(DrawTextBlob, drawTextBlob(r.blob.get(), r.x, r.y, r.paint))
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
 DRAW(DrawSlug, drawSlug(r.slug.get()))
 #else
 // Turn draw into a nop.
@@ -148,6 +148,12 @@ template <> void Draw::draw(const DrawSlug&) {}
 DRAW(DrawAtlas, drawAtlas(r.atlas.get(), r.xforms, r.texs, r.colors, r.count, r.mode, r.sampling,
                           r.cull, r.paint))
 DRAW(DrawVertices, drawVertices(r.vertices, r.bmode, r.paint))
+#ifdef SK_ENABLE_SKSL
+DRAW(DrawMesh, drawMesh(r.mesh, r.blender, r.paint))
+#else
+// Turn draw into a nop.
+template <> void Draw::draw(const DrawMesh&) {}
+#endif
 DRAW(DrawShadowRec, private_draw_shadow_rec(r.path, r.rec))
 DRAW(DrawAnnotation, drawAnnotation(r.rect, r.key.c_str(), r.value.get()))
 
@@ -349,7 +355,6 @@ private:
                 case SkBlendMode::kDstATop:
                 case SkBlendMode::kModulate:
                     return true;
-                    break;
                 default:
                     break;
             }
@@ -447,7 +452,13 @@ private:
     Bounds bounds(const DrawVertices& op) const {
         return this->adjustAndMap(op.vertices->bounds(), &op.paint);
     }
-
+    Bounds bounds(const DrawMesh& op) const {
+#ifdef SK_ENABLE_SKSL
+        return this->adjustAndMap(op.mesh.bounds(), &op.paint);
+#else
+        return SkRect::MakeEmpty();
+#endif
+    }
     Bounds bounds(const DrawAtlas& op) const {
         if (op.cull) {
             // TODO: <reed> can we pass nullptr for the paint? Isn't cull already "correct"
@@ -476,7 +487,7 @@ private:
         return this->adjustAndMap(dst, &op.paint);
     }
 
-#if SK_SUPPORT_GPU
+#if defined(SK_GANESH)
     Bounds bounds(const DrawSlug& op) const {
         SkRect dst = op.slug->sourceBoundsWithOrigin();
         return this->adjustAndMap(dst, &op.slug->initialPaint());
